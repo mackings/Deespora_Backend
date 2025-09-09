@@ -4,6 +4,8 @@ import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { sendVerificationCode, signInWithPhoneNumber, verifyIdToken } from "../services/firebase.js";
+import dotenv from "dotenv";
+
 
 // POST /auth/register
 export async function register(req, res) {
@@ -106,14 +108,22 @@ export async function resetPassword(req, res) {
 // POST /auth/send-otp (Firebase)
 export async function sendOtp(req, res) {
   try {
-    const { phoneNumber, recaptchaToken } = req.body;
-    if (!phoneNumber || !recaptchaToken) return res.status(400).json({ error: "phoneNumber and recaptchaToken are required" });
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ error: "phoneNumber is required" });
 
-    const { sessionInfo } = await sendVerificationCode({ phoneNumber, recaptchaToken });
-    return res.json({ sessionInfo });
-  } catch (e) {
-    const msg = e?.response?.data?.error?.message || e.message;
-    return res.status(400).json({ error: msg });
+    // Call Firebase REST API to send OTP
+    const response = await axios.post(
+      `https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=${process.env.FIREBASE_WEB_API_KEY}`,
+      {
+        phoneNumber,
+        recaptchaToken: "unused", // dummy, because server-side bypasses client reCAPTCHA
+      }
+    );
+
+    return res.json({ sessionInfo: response.data.sessionInfo });
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    return res.status(400).json({ error: err.response?.data?.error?.message || err.message });
   }
 }
 
