@@ -5,6 +5,7 @@ import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { sendVerificationCode, signInWithPhoneNumber, verifyIdToken } from "../services/firebase.js";
 import dotenv from "dotenv";
+import axios from "axios";
 
 
 // POST /auth/register
