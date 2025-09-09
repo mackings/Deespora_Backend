@@ -3,8 +3,8 @@ import morgan from "morgan";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
-import "./utils/db.js";
-import authRoutes from "./routes/auth.routes.js";
+import "./src/utils/db.js";
+import authRoutes from "./src/routes/auth.routes.js";
 
 dotenv.config();
 const app = express();
