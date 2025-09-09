@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "nodemon --env-file=.env src/server.js",
-    "start": "node --env-file=.env src/server.js",
-    "lint": "echo \"(add eslint if you like)\""
-  },
+  
+"scripts": {
+  "start": "node src/server.js",
+  "dev": "nodemon src/server.js"
+},
+
   "dependencies": {
     "axios": "^1.7.2",
     "bcryptjs": "^2.4.3",
