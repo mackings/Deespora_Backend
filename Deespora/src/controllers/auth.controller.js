@@ -123,12 +123,16 @@ export async function sendOtp(req, res) {
     // Generate Firebase custom token for this user
     const customToken = await createCustomToken(user._id.toString());
 
-    return res.json({ customToken, uid: user._id });
+    // Return both _id and phoneNumber so frontend can choose which to use
+    return res.json({ customToken, uid: user._id.toString(), phoneNumber: user.phoneNumber });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: err.message });
   }
 }
+
+
+
 
 // POST /auth/verify-otp
 export async function verifyOtp(req, res) {
@@ -139,17 +143,25 @@ export async function verifyOtp(req, res) {
     // Verify the token with Firebase Admin SDK
     const decoded = await verifyIdToken(idToken);
 
-    // Mark phone as verified in MongoDB
-    const user = await User.findById(uid);
+    // Support both ObjectId (_id) and phoneNumber
+    let user;
+    if (mongoose.Types.ObjectId.isValid(uid)) {
+      user = await User.findById(uid);
+    }
+    if (!user) {
+      user = await User.findOne({ phoneNumber: uid });
+    }
+
     if (!user) return res.status(404).json({ error: "User not found" });
 
     user.phoneVerified = true;
     await user.save();
 
-    return res.json({ message: "Phone verified", uid: user._id, phone: user.phoneNumber });
+    return res.json({ message: "Phone verified", uid: user._id.toString(), phone: user.phoneNumber });
   } catch (err) {
     console.error(err);
     return res.status(400).json({ error: err.message });
   }
 }
+
 
