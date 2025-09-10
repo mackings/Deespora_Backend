@@ -3,9 +3,11 @@ import User from "../models/User.js";
 import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import { sendVerificationCode, signInWithPhoneNumber, verifyIdToken } from "../services/firebase.js";
+//import { sendVerificationCode, signInWithPhoneNumber, verifyIdToken } from "../services/firebase.js";
+import {verifyIdToken,createCustomToken} from "../services/firebase.js"
 import dotenv from "dotenv";
 import axios from "axios";
+
 
 
 // POST /auth/register
@@ -107,46 +109,32 @@ export async function resetPassword(req, res) {
 }
 
 // POST /auth/send-otp (Firebase)
+
 export async function sendOtp(req, res) {
-  try {
-    const { phoneNumber } = req.body;
-    if (!phoneNumber) return res.status(400).json({ error: "phoneNumber is required" });
+  const { phoneNumber } = req.body;
+  if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
 
-    // Call Firebase REST API to send OTP
-    const response = await axios.post(
-      `https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=${process.env.FIREBASE_WEB_API_KEY}`,
-      {
-        phoneNumber,
-        recaptchaToken: "unused", // dummy, because server-side bypasses client reCAPTCHA
-      }
-    );
+  let user = await User.findOne({ phoneNumber });
+  if (!user) user = await User.create({ phoneNumber, phoneVerified: false });
 
-    return res.json({ sessionInfo: response.data.sessionInfo });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    return res.status(400).json({ error: err.response?.data?.error?.message || err.message });
-  }
+  const customToken = await createCustomToken(user._id.toString());
+  return res.json({ customToken, uid: user._id });
 }
+
 
 // POST /auth/verify-otp (Firebase) -> marks user phoneVerified = true
+
 export async function verifyOtp(req, res) {
-  try {
-    const { sessionInfo, code, userId } = req.body;
-    if (!sessionInfo || !code || !userId) return res.status(400).json({ error: "sessionInfo, code and userId are required" });
+  const { uid, idToken } = req.body;
+  if (!uid || !idToken) return res.status(400).json({ error: "uid and idToken required" });
 
-    const data = await signInWithPhoneNumber({ sessionInfo, code });
-    // Optionally verify idToken server-side (ensures token is legit and get phone)
-    const decoded = await verifyIdToken(data.idToken);
+  const decoded = await verifyIdToken(idToken);
+  const user = await User.findById(uid);
+  if (!user) return res.status(404).json({ error: "User not found" });
 
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    user.phoneNumber = decoded.phone_number || data.phoneNumber || user.phoneNumber;
-    user.phoneVerified = true;
-    await user.save();
+  user.phoneVerified = true;
+  await user.save();
 
-    return res.json({ message: "Phone verified", uid: user._id, phone: user.phoneNumber });
-  } catch (e) {
-    const msg = e?.response?.data?.error?.message || e.message;
-    return res.status(400).json({ error: msg });
-  }
+  return res.json({ message: "Phone verified", uid: user._id, phone: user.phoneNumber });
 }
+
