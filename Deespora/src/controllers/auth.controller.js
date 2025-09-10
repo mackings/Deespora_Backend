@@ -139,7 +139,7 @@ export async function sendOtp(req, res) {
     // Send SMS with Twilio
     await client.messages.create({
       body: `Your verification code is ${otp}`,
-      from: process.env.TWILIO_PHONE_NUMBER,
+      from: "+16402013240",
       to: phoneNumber,
     });
 
@@ -151,9 +151,6 @@ export async function sendOtp(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
-
-
-
 
 
 // POST /auth/verify-otp
