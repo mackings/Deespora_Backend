@@ -3,11 +3,14 @@ import User from "../models/User.js";
 import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import {verifyIdToken,createCustomToken} from "../services/firebase.js"
+import { sendVerification,checkVerification } from "../utils/twillo.js";
 import dotenv from "dotenv";
 import axios from "axios";
 import mongoose from "mongoose";
+import  twilio from "twilio";
 
+
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 
 // POST /auth/register
@@ -108,56 +111,73 @@ export async function resetPassword(req, res) {
   }
 }
 
-// POST /auth/send-otp (Firebase)
 
+
+// POST /auth/send-otp
 export async function sendOtp(req, res) {
   try {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
 
-    // Find existing user or create a phone-only user
+    // Generate 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999).toString();
+
+    // Store OTP + expiry in user record
     let user = await User.findOne({ phoneNumber });
     if (!user) {
       user = await User.create({ phoneNumber, phoneVerified: false });
     }
-
-    // Generate Firebase custom token for this user
-    const customToken = await createCustomToken(user._id.toString());
-
-    return res.json({ customToken, uid: user._id });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
-  }
-}
-
-// POST /auth/verify-otp
-export async function verifyOtp(req, res) {
-  try {
-    const { uid, idToken } = req.body;
-    if (!uid || !idToken) return res.status(400).json({ error: "uid and idToken required" });
-
-    // Verify the token with Firebase Admin SDK
-    const decoded = await verifyIdToken(idToken);
-
-    // Support both ObjectId (_id) and phoneNumber
-    let user;
-    if (mongoose.Types.ObjectId.isValid(uid)) {
-      user = await User.findById(uid);
-    }
-    if (!user) {
-      user = await User.findOne({ phoneNumber: uid });
-    }
-
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    user.phoneVerified = true;
+    user.otp = otp;
+    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // expires in 5 mins
     await user.save();
 
-    return res.json({ message: "Phone verified", uid: user._id.toString(), phone: user.phoneNumber });
+    // Send SMS with Twilio
+    await client.messages.create({
+      body: `Your verification code is ${otp}`,
+      from: process.env.TWILIO_PHONE_NUMBER, // e.g. +15017122661
+      to: phoneNumber,
+    });
+
+    res.json({ message: "OTP sent" });
   } catch (err) {
     console.error(err);
-    return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 }
+
+
+
+
+
+// POST /auth/verify-otp
+
+export async function verifyOtp(req, res) {
+  try {
+    const { phoneNumber, code } = req.body;
+    if (!phoneNumber || !code) return res.status(400).json({ error: "phoneNumber and code required" });
+
+    const user = await User.findOne({ phoneNumber });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.otp || user.otpExpires < Date.now()) {
+      return res.status(400).json({ error: "OTP expired. Request a new one." });
+    }
+
+    if (user.otp !== code) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Mark verified
+    user.phoneVerified = true;
+    user.otp = null;
+    user.otpExpires = null;
+    await user.save();
+
+    res.json({ message: "Phone verified successfully", uid: user._id.toString(), phone: user.phoneNumber });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 
