@@ -3,7 +3,6 @@ import User from "../models/User.js";
 import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
-//import { sendVerificationCode, signInWithPhoneNumber, verifyIdToken } from "../services/firebase.js";
 import {verifyIdToken,createCustomToken} from "../services/firebase.js"
 import dotenv from "dotenv";
 import axios from "axios";
@@ -111,30 +110,46 @@ export async function resetPassword(req, res) {
 // POST /auth/send-otp (Firebase)
 
 export async function sendOtp(req, res) {
-  const { phoneNumber } = req.body;
-  if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
 
-  let user = await User.findOne({ phoneNumber });
-  if (!user) user = await User.create({ phoneNumber, phoneVerified: false });
+    // Find existing user or create a phone-only user
+    let user = await User.findOne({ phoneNumber });
+    if (!user) {
+      user = await User.create({ phoneNumber, phoneVerified: false });
+    }
 
-  const customToken = await createCustomToken(user._id.toString());
-  return res.json({ customToken, uid: user._id });
+    // Generate Firebase custom token for this user
+    const customToken = await createCustomToken(user._id.toString());
+
+    return res.json({ customToken, uid: user._id });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
 }
 
-
-// POST /auth/verify-otp (Firebase) -> marks user phoneVerified = true
-
+// POST /auth/verify-otp
 export async function verifyOtp(req, res) {
-  const { uid, idToken } = req.body;
-  if (!uid || !idToken) return res.status(400).json({ error: "uid and idToken required" });
+  try {
+    const { uid, idToken } = req.body;
+    if (!uid || !idToken) return res.status(400).json({ error: "uid and idToken required" });
 
-  const decoded = await verifyIdToken(idToken);
-  const user = await User.findById(uid);
-  if (!user) return res.status(404).json({ error: "User not found" });
+    // Verify the token with Firebase Admin SDK
+    const decoded = await verifyIdToken(idToken);
 
-  user.phoneVerified = true;
-  await user.save();
+    // Mark phone as verified in MongoDB
+    const user = await User.findById(uid);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-  return res.json({ message: "Phone verified", uid: user._id, phone: user.phoneNumber });
+    user.phoneVerified = true;
+    await user.save();
+
+    return res.json({ message: "Phone verified", uid: user._id, phone: user.phoneNumber });
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: err.message });
+  }
 }
 

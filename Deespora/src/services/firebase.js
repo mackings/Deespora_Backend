@@ -18,6 +18,7 @@ if (!fs.existsSync(credsPath)) {
 // Send OTP -> backend generates a custom token
 export async function createCustomToken(uid) {
   return admin.auth().createCustomToken(uid);
+  
 }
 
 // Verify Firebase ID token
