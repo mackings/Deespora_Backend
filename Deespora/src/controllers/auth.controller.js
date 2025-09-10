@@ -114,13 +114,18 @@ export async function resetPassword(req, res) {
 
 
 // POST /auth/send-otp
+// Helper function to generate a 6-digit OTP
+function generateOtp() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 export async function sendOtp(req, res) {
   try {
     const { phoneNumber } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
 
-    // Generate 6-digit OTP
-    const otp = crypto.randomInt(100000, 999999).toString();
+    // Generate OTP
+    const otp = generateOtp();
 
     // Store OTP + expiry in user record
     let user = await User.findOne({ phoneNumber });
@@ -128,19 +133,21 @@ export async function sendOtp(req, res) {
       user = await User.create({ phoneNumber, phoneVerified: false });
     }
     user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // expires in 5 mins
+    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 mins expiry
     await user.save();
 
     // Send SMS with Twilio
     await client.messages.create({
       body: `Your verification code is ${otp}`,
-      from: process.env.TWILIO_PHONE_NUMBER, // e.g. +15017122661
+      from: process.env.TWILIO_PHONE_NUMBER,
       to: phoneNumber,
     });
 
+    console.log(`✅ OTP ${otp} sent to ${phoneNumber}`);
+
     res.json({ message: "OTP sent" });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error sending OTP:", err);
     res.status(500).json({ error: err.message });
   }
 }
