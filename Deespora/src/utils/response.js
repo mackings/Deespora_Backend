@@ -1,4 +1,10 @@
+// utils/response.js
 export function success(res, message, data = {}, statusCode = 200) {
+  // Always keep success codes in the 2xx range
+  if (statusCode < 200 || statusCode >= 300) {
+    statusCode = 200; // fallback to prevent wrong use
+  }
+
   return res.status(statusCode).json({
     success: true,
     message,
@@ -6,7 +12,12 @@ export function success(res, message, data = {}, statusCode = 200) {
   });
 }
 
-export function error(res, message, statusCode = 500, details = null) {
+export function error(res, message, statusCode = 400, details = null) {
+  // Default to 400 for client errors instead of 200
+  if (statusCode >= 200 && statusCode < 300) {
+    statusCode = 400;
+  }
+
   return res.status(statusCode).json({
     success: false,
     message,
