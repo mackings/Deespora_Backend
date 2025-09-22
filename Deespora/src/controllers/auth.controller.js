@@ -3,14 +3,12 @@ import User from "../models/User.js";
 import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import { sendVerification,checkVerification } from "../utils/twillo.js";
 import dotenv from "dotenv";
 import axios from "axios";
 import mongoose from "mongoose";
-import  twilio from "twilio";
 
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
 
 
 // POST /auth/register
@@ -32,6 +30,7 @@ export async function register(req, res) {
   }
 }
 
+
 // POST /auth/login
 export async function login(req, res) {
   try {
@@ -50,6 +49,7 @@ export async function login(req, res) {
     return res.status(500).json({ error: e.message });
   }
 }
+
 
 // GET /auth/me
 export async function me(req, res) {
@@ -119,69 +119,75 @@ function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-export async function sendOtp(req, res) {
+
+
+// POST /auth/send-email-otp
+export async function sendEmailOtp(req, res) {
   try {
-    const { phoneNumber } = req.body;
-    if (!phoneNumber) return res.status(400).json({ error: "phoneNumber required" });
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email required" });
 
     // Generate OTP
-    const otp = generateOtp();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Store OTP + expiry in user record
-    let user = await User.findOne({ phoneNumber });
+    // Find user or create placeholder if not exists
+    let user = await User.findOne({ email });
     if (!user) {
-      user = await User.create({ phoneNumber, phoneVerified: false });
+      user = await User.create({ email, phoneVerified: false });
     }
+
+    // Store OTP & expiry
     user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 mins expiry
+    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
     await user.save();
 
-    // Send SMS with Twilio
-    await client.messages.create({
-      body: `Your verification code is ${otp}`,
-      from: "+16402013240",
-      to: phoneNumber,
+    // Send OTP via email
+    await sendEmail({
+      to: email,
+      subject: "Your verification code",
+      html: `<p>Your verification code is:</p><h2>${otp}</h2><p>This code will expire in 5 minutes.</p>`,
     });
 
-    console.log(`✅ OTP ${otp} sent to ${phoneNumber}`);
-
-    res.json({ message: "OTP sent" });
+    console.log(`✅ Email OTP ${otp} sent to ${email}`);
+    res.json({ message: "OTP sent to email" });
   } catch (err) {
-    console.error("❌ Error sending OTP:", err);
+    console.error("❌ Error sending Email OTP:", err);
     res.status(500).json({ error: err.message });
   }
 }
 
 
+
 // POST /auth/verify-otp
-
-export async function verifyOtp(req, res) {
+// POST /auth/verify-email-otp
+export async function verifyEmailOtp(req, res) {
   try {
-    const { phoneNumber, code } = req.body;
-    if (!phoneNumber || !code) return res.status(400).json({ error: "phoneNumber and code required" });
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ error: "Email and code required" });
 
-    const user = await User.findOne({ phoneNumber });
+    const user = await User.findOne({ email });
     if (!user) return res.status(404).json({ error: "User not found" });
 
+    // Check OTP validity
     if (!user.otp || user.otpExpires < Date.now()) {
       return res.status(400).json({ error: "OTP expired. Request a new one." });
     }
-
     if (user.otp !== code) {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
     // Mark verified
-    user.phoneVerified = true;
+    user.phoneVerified = true; // you might want to rename this field to `emailVerified`
     user.otp = null;
     user.otpExpires = null;
     await user.save();
 
-    res.json({ message: "Phone verified successfully", uid: user._id.toString(), phone: user.phoneNumber });
+    res.json({ message: "Email verified successfully", uid: user._id.toString(), email: user.email });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error verifying Email OTP:", err);
     res.status(500).json({ error: err.message });
   }
 }
+
 
 

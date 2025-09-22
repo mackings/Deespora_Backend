@@ -3,7 +3,8 @@ import { requireAuth } from "../middleware/auth.js";
 import {
   register, login, me,
   requestPasswordReset, resetPassword,
-  sendOtp, verifyOtp
+  sendEmailOtp,
+  verifyEmailOtp
 } from "../controllers/auth.controller.js";
 
 const router = Router();
@@ -18,7 +19,8 @@ router.post("/request-password-reset", requestPasswordReset);
 router.post("/reset-password", resetPassword);
 
 // Firebase Phone
-router.post("/send-otp", sendOtp);
-router.post("/verify-otp", verifyOtp);
+router.post("/send-otp", sendEmailOtp);
+router.post("/verify-otp", verifyEmailOtp);
 
 export default router;
+
