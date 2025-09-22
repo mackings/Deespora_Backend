@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import "../Deespora/src/utils/db.js";
 import authRoutes from "../Deespora/src/routes/auth.routes.js";
 
+
 dotenv.config();
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(morgan("dev"));
 
 app.get("/", (req, res) => res.json({ ok: true, name: "firebase-phone-auth-express-template" }));
 app.use("/auth", authRoutes);
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

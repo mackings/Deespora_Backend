@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import { success } from "../utils/response.js";
 import { signJwt } from "../utils/jwt.js";
 import { randomToken, hashToken, compareToken } from "../utils/crypto.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -12,21 +13,27 @@ import mongoose from "mongoose";
 
 
 // POST /auth/register
+
 export async function register(req, res) {
   try {
     const { email, password, phoneNumber } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+    if (!email || !password) return error(res, "Email and password are required", 400);
 
     const exists = await User.findOne({ email });
-    if (exists) return res.status(409).json({ error: "Email already in use" });
+    if (exists) return error(res, "Email already in use", 409);
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
     const user = await User.create({ email, passwordHash, phoneNumber, phoneVerified: false });
-    return res.status(201).json({ message: "Registered", user: { id: user._id, email: user.email, phoneVerified: user.phoneVerified } });
+
+    return success(res, "Registered", {
+      id: user._id,
+      email: user.email,
+      phoneVerified: user.phoneVerified,
+    }, 201);
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return error(res, e.message, 500);
   }
 }
 
@@ -35,25 +42,36 @@ export async function register(req, res) {
 export async function login(req, res) {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
-    const ok = await user.comparePassword(password);
-    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
-    // Optional: enforce phone verification before login
-     if (!user.phoneVerified) return res.status(403).json({ error: "Phone not verified" });
+    const user = await User.findOne({ email });
+    if (!user) return error(res, "Invalid credentials", 401);
+
+    const ok = await user.comparePassword(password);
+    if (!ok) return error(res, "Invalid credentials", 401);
+
+    // Optional: enforce phone/email verification before login
+    if (!user.phoneVerified) return error(res, "Phone not verified", 403);
 
     const token = signJwt({ uid: String(user._id), email: user.email });
-    return res.json({ token, user: { id: user._id, email: user.email, phoneVerified: user.phoneVerified } });
+
+    return success(res, {
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        phoneVerified: user.phoneVerified,
+      },
+    });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return error(res, e.message, 500);
   }
 }
 
 
+
 // GET /auth/me
 export async function me(req, res) {
-  return res.json({ user: req.user });
+  return success(res,{User});
 }
 
 // POST /auth/request-password-reset
@@ -61,43 +79,53 @@ export async function requestPasswordReset(req, res) {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
-    if (!user) return res.json({ message: "If the email exists, a reset link will be sent." });
 
-    const token = randomToken(24);
-    const tokenHash = await hashToken(token);
-    const expires = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
+    // Always respond the same (security best practice: don’t reveal if email exists)
+    if (user) {
+      const token = randomToken(24);
+      const tokenHash = await hashToken(token);
+      const expires = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
 
-    user.resetPasswordTokenHash = tokenHash;
-    user.resetPasswordExpiresAt = expires;
-    await user.save();
+      user.resetPasswordTokenHash = tokenHash;
+      user.resetPasswordExpiresAt = expires;
+      await user.save();
 
-    const resetLink = `${process.env.CLIENT_URL || "http://localhost:5173"}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
-    await sendEmail({
-      to: email,
-      subject: "Reset your password",
-      html: `<p>Click the link below to reset your password (valid for 30 minutes):</p><p><a href="${resetLink}">${resetLink}</a></p>`,
-    });
+      const resetLink = `${
+        process.env.CLIENT_URL || "http://localhost:5173"
+      }/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
 
-    return res.json({ message: "If the email exists, a reset link will be sent." });
+      await sendEmail({
+        to: email,
+        subject: "Reset your password",
+        html: `<p>Click the link below to reset your password (valid for 30 minutes):</p><p><a href="${resetLink}">${resetLink}</a></p>`,
+      });
+    }
+
+    return success(res, { message: "If the email exists, a reset link will be sent." });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return error(res, e.message, 500);
   }
 }
+
+
+
 
 // POST /auth/reset-password
 export async function resetPassword(req, res) {
   try {
     const { email, token, password } = req.body;
+
     const user = await User.findOne({ email });
     if (!user || !user.resetPasswordTokenHash || !user.resetPasswordExpiresAt) {
-      return res.status(400).json({ error: "Invalid token" });
+      return error(res, "Invalid token", 400);
     }
+
     if (user.resetPasswordExpiresAt < new Date()) {
-      return res.status(400).json({ error: "Token expired" });
+      return error(res, "Token expired", 400);
     }
 
     const match = await compareToken(token, user.resetPasswordTokenHash);
-    if (!match) return res.status(400).json({ error: "Invalid token" });
+    if (!match) return error(res, "Invalid token", 400);
 
     const salt = await bcrypt.genSalt(10);
     user.passwordHash = await bcrypt.hash(password, salt);
@@ -105,11 +133,12 @@ export async function resetPassword(req, res) {
     user.resetPasswordExpiresAt = null;
     await user.save();
 
-    return res.json({ message: "Password updated" });
+    return success(res, { message: "Password updated" });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    return error(res, e.message, 500);
   }
 }
+
 
 
 
@@ -125,23 +154,17 @@ function generateOtp() {
 export async function sendEmailOtp(req, res) {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: "Email required" });
+    if (!email) return error(res, "Email required", 400);
 
-    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Find user or create placeholder if not exists
     let user = await User.findOne({ email });
-    if (!user) {
-      user = await User.create({ email, phoneVerified: false });
-    }
+    if (!user) user = await User.create({ email, phoneVerified: false });
 
-    // Store OTP & expiry
     user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000);
     await user.save();
 
-    // Send OTP via email
     await sendEmail({
       to: email,
       subject: "Your verification code",
@@ -149,45 +172,50 @@ export async function sendEmailOtp(req, res) {
     });
 
     console.log(`✅ Email OTP ${otp} sent to ${email}`);
-    res.json({ message: "OTP sent to email" });
+    return success(res, "OTP sent to email");
   } catch (err) {
     console.error("❌ Error sending Email OTP:", err);
-    res.status(500).json({ error: err.message });
+    return error(res, "Failed to send OTP", 500, err.message);
   }
 }
 
 
 
-// POST /auth/verify-otp
 // POST /auth/verify-email-otp
 export async function verifyEmailOtp(req, res) {
   try {
     const { email, code } = req.body;
-    if (!email || !code) return res.status(400).json({ error: "Email and code required" });
+    if (!email || !code) return error(res, "Email and code required", 400);
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) return error(res, "User not found", 404);
 
     // Check OTP validity
     if (!user.otp || user.otpExpires < Date.now()) {
-      return res.status(400).json({ error: "OTP expired. Request a new one." });
+      return error(res, "OTP expired. Request a new one.", 400);
     }
     if (user.otp !== code) {
-      return res.status(400).json({ error: "Invalid OTP" });
+      return error(res, "Invalid OTP", 400);
     }
 
     // Mark verified
-    user.phoneVerified = true; // you might want to rename this field to `emailVerified`
+    user.phoneVerified = true; // consider renaming to emailVerified
     user.otp = null;
     user.otpExpires = null;
     await user.save();
 
-    res.json({ message: "Email verified successfully", uid: user._id.toString(), email: user.email });
+    // ✅ Use success util
+    return success(res, {
+      message: "Email verified successfully",
+      uid: user._id.toString(),
+      email: user.email,
+    });
   } catch (err) {
     console.error("❌ Error verifying Email OTP:", err);
-    res.status(500).json({ error: err.message });
+    return error(res, err.message, 500);
   }
 }
+
 
 
 
