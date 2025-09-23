@@ -14,6 +14,8 @@ const cities = [
   "Madrid", "Barcelona" // Spain,
 ];
 
+
+
 exports.getEvents = async (req, res) => {
   try {
     // Pick a random city if not provided
