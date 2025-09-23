@@ -11,7 +11,7 @@ const cities = [
   "Amsterdam", "Rotterdam", // Netherlands
   "Sydney", "Melbourne", "Brisbane", // Australia
   "Dublin", "Cork", // Ireland
-  "Madrid", "Barcelona" // Spain
+  "Madrid", "Barcelona" // Spain,
 ];
 
 exports.getEvents = async (req, res) => {
