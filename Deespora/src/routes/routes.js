@@ -1,6 +1,6 @@
 const express = require("express");
 const { requireAuth } = require("../middleware/auth.js");
-const { getEvents } = require("../controllers/event.js");
+const { getEvents, searchEvent } = require("../controllers/event.js");
 const router = express.Router();
 
 
@@ -13,7 +13,7 @@ const {
   sendEmailOtp,
   verifyEmailOtp
 } = require("../controllers/auth.js");
-const { getRestaurants } = require("../controllers/restaurants.js");
+const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 
 
 
@@ -31,10 +31,17 @@ router.post("/send-otp", sendEmailOtp);
 router.post("/verify-otp", verifyEmailOtp);
 
 
-
+//Events
 router.get("/all-events", getEvents);
+router.post("/search-events", searchEvent);
+
+
+//Restaurants
 
 router.get("/restaurants", getRestaurants);
+router.get("/search-restaurants", searchRestaurants);
+
+
 
 module.exports = router;
 

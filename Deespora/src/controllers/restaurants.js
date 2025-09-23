@@ -17,7 +17,7 @@ const cities = [
 
 exports.getRestaurants = async (req, res) => {
   try {
-    let { city } = req.body;
+    let { city } = req.query;
 
     let locationData;
     if (!city) {
@@ -72,10 +72,14 @@ exports.getRestaurants = async (req, res) => {
 };
 
 
+
+
+
 // 🔍 Search restaurants by keyword & city
+
 exports.searchRestaurants = async (req, res) => {
   try {
-    let { city, keyword } = req.body;
+    let { city, keyword } = req.query;
 
     if (!keyword) return error(res, "Keyword is required (e.g., 'African', 'Pizza', 'Sushi')", 400);
     if (!city) return error(res, "City is required to search", 400);

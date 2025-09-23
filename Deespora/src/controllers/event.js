@@ -51,3 +51,54 @@ exports.getEvents = async (req, res) => {
     return error(res, "Failed to fetch random events", 500, err.message);
   }
 };
+
+
+
+
+exports.searchEvent = async (req, res) => {
+  try {
+    // Extract from request body
+    const { keyword, size = 50, ...filters } = req.body;
+
+    if (!keyword) {
+      return error(res, "Keyword is required (e.g., 'Music', 'Football', 'Festival')", 400);
+    }
+
+    const url = "https://app.ticketmaster.com/discovery/v2/events.json";
+
+    // Build params
+    const params = {
+      apikey: process.env.TICKETMASTER_API_KEY,
+      keyword,
+      size,       // default 50
+      ...filters, // any other filter user sends (city, countryCode, startDateTime, etc.)
+    };
+
+    const response = await axios.get(url, { params });
+
+    const events = response.data._embedded?.events;
+
+    if (!events || events.length === 0) {
+      return error(
+        res,
+        `No events found for "${keyword}" ${filters.city ? "in " + filters.city : "worldwide"}`,
+        404
+      );
+    }
+
+    return success(
+      res,
+      `Search results for "${keyword}" ${filters.city ? "in " + filters.city : "worldwide"}`,
+      {
+        count: events.length,
+        page: response.data.page,
+        events,
+      }
+    );
+  } catch (err) {
+    console.error("❌ Error searching events:", err.response?.data || err.message);
+    return error(res, "Failed to search events", 500, err.message);
+  }
+};
+
+
