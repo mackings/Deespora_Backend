@@ -1,13 +1,16 @@
-import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
-import {
-  register, login, me,
-  requestPasswordReset, resetPassword,
+const express = require("express");
+const { requireAuth } = require("../middleware/auth.js");
+const {
+  register,
+  login,
+  me,
+  requestPasswordReset,
+  resetPassword,
   sendEmailOtp,
   verifyEmailOtp
-} from "../controllers/auth.controller.js";
+} = require("../controllers/auth.controller.js");
 
-const router = Router();
+const router = express.Router();
 
 // Email/password
 router.post("/register", register);
@@ -22,5 +25,4 @@ router.post("/reset-password", resetPassword);
 router.post("/send-otp", sendEmailOtp);
 router.post("/verify-otp", verifyEmailOtp);
 
-export default router;
-
+module.exports = router;
