@@ -13,6 +13,7 @@ const {
   sendEmailOtp,
   verifyEmailOtp
 } = require("../controllers/auth.js");
+const { getRestaurants } = require("../controllers/restaurants.js");
 
 
 
@@ -32,6 +33,8 @@ router.post("/verify-otp", verifyEmailOtp);
 
 
 router.get("/all-events", getEvents);
+
+router.get("/restaurants", getRestaurants);
 
 module.exports = router;
 
