@@ -1,14 +1,17 @@
+require("dotenv").config();
 const express = require("express");
 const morgan = require("morgan");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
+const connectDB = require("./src/utils/db.js");
 
-require("./src/utils/db.js");
+//require("./src/utils/db.js");
 const routes = require("./src/routes/routes.js");
 
-dotenv.config();
+//dotenv.config();
 const app = express();
+connectDB();
 
 app.use(cors({ origin: process.env.CLIENT_URL || "*", credentials: true }));
 app.use(express.json());
@@ -20,10 +23,8 @@ app.get("/", (req, res) =>
 );
 
 app.use("/", routes);
+const port = process.env.PORT || 3000;
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
 });
-
-module.exports = app;
