@@ -25,3 +25,5 @@ function error(res, message, statusCode = 400, details = null) {
 }
 
 module.exports = { success, error };
+
+
