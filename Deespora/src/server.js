@@ -4,8 +4,8 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
 
-require("./src/utils/db.js");
-const routes = require("./src/routes/routes.js");
+require("./utils/db.js");
+const routes = require("./routes/routes.js");
 
 dotenv.config();
 const app = express();
@@ -22,8 +22,8 @@ app.get("/", (req, res) =>
 app.use("/", routes);
 
 const PORT = process.env.PORT || 3000;
-// app.listen(PORT, () => {
-//   console.log(`Server running on http://localhost:${PORT}`);
-// });
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
 
 module.exports = app;
