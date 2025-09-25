@@ -4,10 +4,10 @@ const morgan = require("morgan");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
-const connectDB = require("./src/utils/db.js");
+const connectDB = require("./Deespora/src/utils/db.js");
 
 //require("./src/utils/db.js");
-const routes = require("./src/routes/routes.js");
+const routes = require("./Deespora/src/routes/routes.js");
 
 //dotenv.config();
 const app = express();
