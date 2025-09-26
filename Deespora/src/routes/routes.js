@@ -19,7 +19,7 @@ const { getRestaurants, searchRestaurants } = require("../controllers/restaurant
 
 // Email/password
 router.post("/register", register);
-router.post("/auth/login", login);
+router.post("/login", login);
 //router.get("/me", requireAuth, me);
 
 // Password reset
