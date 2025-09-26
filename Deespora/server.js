@@ -19,7 +19,7 @@ app.use(cookieParser());
 app.use(morgan("dev"));
 
 app.get("/", (req, res) =>
-  res.json({ ok: true, name: "firebase-phone-auth-express-template" })
+  res.json({ ok: true, name: "Welcome to the Diaspora" })
 );
 
 app.use("/", routes);
