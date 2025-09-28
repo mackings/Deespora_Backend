@@ -2,18 +2,6 @@ const axios = require("axios");
 const {success,error} = require("../utils/response")
 
 
-const cities = [
-  { name: "New York", lat: 40.7128, lng: -74.0060 },   // USA
-  { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
-  { name: "London", lat: 51.5074, lng: -0.1278 },      // UK
-  { name: "Toronto", lat: 43.6532, lng: -79.3832 },    // Canada
-  { name: "Sydney", lat: -33.8688, lng: 151.2093 },    // Australia
-  { name: "Lagos", lat: 6.5244, lng: 3.3792 },         // Nigeria
-  { name: "Nairobi", lat: -1.2921, lng: 36.8219 },     // Kenya
-  { name: "Cape Town", lat: -33.9249, lng: 18.4241 },  // South Africa
-  { name: "Accra", lat: 5.6037, lng: -0.1870 },        // Ghana
-];
-
 // helper: fetch reviews for a single place
 async function fetchReviews(placeId) {
   const url = `https://maps.googleapis.com/maps/api/place/details/json`;
@@ -28,25 +16,41 @@ async function fetchReviews(placeId) {
   return resp.data.result?.reviews || [];
 }
 
+// helper: resolve a city name to lat/lng using Geocoding API
+async function getCityCoordinates(city) {
+  const url = `https://maps.googleapis.com/maps/api/geocode/json`;
+  const resp = await axios.get(url, {
+    params: {
+      address: city,
+      key: process.env.GOOGLE_PLACES_API_KEY,
+    },
+  });
+
+  if (!resp.data.results || resp.data.results.length === 0) {
+    throw new Error(`Could not find coordinates for "${city}"`);
+  }
+
+  const { lat, lng } = resp.data.results[0].geometry.location;
+  return { lat, lng };
+}
+
 // --------------------------------------------------
-// GET nearby restaurants + reviews
+// GET nearby restaurants + reviews (supports any city)
 // --------------------------------------------------
+
+
 exports.getRestaurants = async (req, res) => {
   try {
     let { city } = req.query;
 
-    let locationData;
     if (!city) {
-      locationData = cities[Math.floor(Math.random() * cities.length)];
-      city = locationData.name;
-    } else {
-      locationData = cities.find(c => c.name.toLowerCase() === city.toLowerCase());
-      if (!locationData) return error(res, `City "${city}" not supported`, 404);
+      return error(res, "Please provide a city name", 400);
     }
 
-    const { lat, lng } = locationData;
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+    // 🔑 Get coordinates for the given city
+    const { lat, lng } = await getCityCoordinates(city);
 
+    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
     const allResults = [];
     let nextPageToken = null;
 
@@ -69,7 +73,7 @@ exports.getRestaurants = async (req, res) => {
       if (nextPageToken) await new Promise(r => setTimeout(r, 2000)); // wait for token
     } while (nextPageToken && allResults.length < 200);
 
-    const limitedResults = allResults.slice(0, 20); // limit for demo
+    const limitedResults = allResults.slice(0, 20);
 
     // 🔑 Fetch reviews for top 10 restaurants
     const withReviews = await Promise.all(
@@ -77,7 +81,7 @@ exports.getRestaurants = async (req, res) => {
         const reviews = await fetchReviews(place.place_id);
         return {
           ...place,
-          reviews: reviews.slice(0, 3), // only 3 reviews
+          reviews: reviews.slice(0, 3), // only 3 reviews per restaurant
         };
       })
     );
@@ -88,6 +92,9 @@ exports.getRestaurants = async (req, res) => {
     return error(res, "Failed to fetch restaurants", 500, err.message);
   }
 };
+
+
+
 
 // --------------------------------------------------
 // SEARCH restaurants by keyword & city + reviews
