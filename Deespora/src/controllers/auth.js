@@ -106,6 +106,7 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
+
 exports.resetPassword = async (req, res) => {
   try {
     const { email, token, password } = req.body;
@@ -129,6 +130,8 @@ exports.resetPassword = async (req, res) => {
     return error(res, e.message, 500);
   }
 };
+
+
 
 exports.sendEmailOtp = async (req, res) => {
   try {
