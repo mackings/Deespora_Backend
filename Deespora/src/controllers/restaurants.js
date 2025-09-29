@@ -41,57 +41,98 @@ async function getCityCoordinates(city) {
 
 exports.getRestaurants = async (req, res) => {
   try {
-    let { city } = req.query;
+    // 🔑 Predefined major US cities with coordinates
+    const usCities = [
+      { name: "New York", lat: 40.7128, lng: -74.0060 },
+      { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+      { name: "Chicago", lat: 41.8781, lng: -87.6298 },
+      { name: "Houston", lat: 29.7604, lng: -95.3698 },
+      { name: "Atlanta", lat: 33.7490, lng: -84.3880 },
+      { name: "Washington DC", lat: 38.9072, lng: -77.0369 },
+      { name: "Dallas", lat: 32.7767, lng: -96.7970 },
+      { name: "Seattle", lat: 47.6062, lng: -122.3321 },
+      { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
+      { name: "Minneapolis", lat: 44.9778, lng: -93.2650 },
+    ];
 
-    if (!city) {
-      return error(res, "Please provide a city name", 400);
-    }
-
-    // 🔑 Get coordinates for the given city
-    const { lat, lng } = await getCityCoordinates(city);
+    const africanKeywords = [
+      "african",
+      "nigerian",
+      "ethiopian",
+      "ghanaian",
+      "senegalese",
+      "somali",
+      "cameroonian",
+      "egyptian",
+      "north african",
+      "sudanese",
+      "afro fusion",
+      "afro-caribbean",
+    ];
 
     const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
-    const allResults = [];
-    let nextPageToken = null;
 
-    do {
-      const response = await axios.get(url, {
-        params: {
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          location: `${lat},${lng}`,
-          radius: 2000,
-          type: "restaurant",
-          pagetoken: nextPageToken,
-        },
-      });
+    let allResults = [];
 
-      if (response.data.results?.length) {
-        allResults.push(...response.data.results);
-      }
+    // 🔥 Loop through each city
+    for (const city of usCities) {
+      let nextPageToken = null;
 
-      nextPageToken = response.data.next_page_token;
-      if (nextPageToken) await new Promise(r => setTimeout(r, 2000)); // wait for token
-    } while (nextPageToken && allResults.length < 200);
+      do {
+        const response = await axios.get(url, {
+          params: {
+            key: process.env.GOOGLE_PLACES_API_KEY,
+            location: `${city.lat},${city.lng}`,
+            radius: 10000, // 10km radius
+            type: "restaurant",
+            keyword: "african restaurant",
+            pagetoken: nextPageToken,
+          },
+        });
 
-    const limitedResults = allResults.slice(0, 20);
+        if (response.data.results?.length) {
+          // attach city info for reference
+          response.data.results.forEach(r => {
+            r.city = city.name;
+          });
 
-    // 🔑 Fetch reviews for top 10 restaurants
+          allResults.push(...response.data.results);
+        }
+
+        nextPageToken = response.data.next_page_token;
+        if (nextPageToken) await new Promise(r => setTimeout(r, 2000)); // wait for token
+      } while (nextPageToken && allResults.length < 500);
+    }
+
+    // 🔎 Filter to African cuisines
+    const filteredResults = allResults.filter(place =>
+      africanKeywords.some(k =>
+        `${place.name} ${place.vicinity || ""}`.toLowerCase().includes(k)
+      )
+    );
+
+    // 🔑 Limit results to avoid huge payload
+    const limitedResults = filteredResults.slice(0, 50);
+
+    // 🔑 Fetch reviews for top restaurants
     const withReviews = await Promise.all(
-      limitedResults.slice(0, 10).map(async (place) => {
+      limitedResults.slice(0, 15).map(async (place) => {
         const reviews = await fetchReviews(place.place_id);
         return {
           ...place,
-          reviews: reviews.slice(0, 3), // only 3 reviews per restaurant
+          reviews: reviews.slice(0, 3),
         };
       })
     );
 
-    return success(res, `Restaurants from ${city}`, withReviews);
+    return success(res, "African restaurants across the US", withReviews);
   } catch (err) {
-    console.error("❌ Error fetching restaurants:", err.response?.data || err.message);
-    return error(res, "Failed to fetch restaurants", 500, err.message);
+    console.error("❌ Error fetching African restaurants:", err.response?.data || err.message);
+    return error(res, "Failed to fetch African restaurants", 500, err.message);
   }
 };
+
+
 
 
 
