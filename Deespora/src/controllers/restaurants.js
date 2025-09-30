@@ -1,5 +1,23 @@
 const axios = require("axios");
 const {success,error} = require("../utils/response")
+const { readCache, writeCache } = require('../utils/RestCache');
+const cron = require("node-cron");
+
+
+
+cron.schedule("0 0 * * *", async () => {
+  console.log("⏰ Running daily cache refresh for African restaurants...");
+  try {
+    // Call your function that fetches and caches restaurants
+    await getRestaurants({ /* dummy req */ }, { 
+      json: () => {}, // dummy res.json
+      status: () => ({ json: () => {} }),
+    });
+    console.log("✅ Cache refreshed successfully");
+  } catch (err) {
+    console.error("❌ Failed to refresh cache:", err);
+  }
+});
 
 
 // helper: fetch reviews for a single place
@@ -39,98 +57,121 @@ async function getCityCoordinates(city) {
 // --------------------------------------------------
 
 
-exports.getRestaurants = async (req, res) => {
-  try {
-    // 🔑 Predefined major US cities with coordinates
-    const usCities = [
-      { name: "New York", lat: 40.7128, lng: -74.0060 },
-      { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
-      { name: "Chicago", lat: 41.8781, lng: -87.6298 },
-      { name: "Houston", lat: 29.7604, lng: -95.3698 },
-      { name: "Atlanta", lat: 33.7490, lng: -84.3880 },
-      { name: "Washington DC", lat: 38.9072, lng: -77.0369 },
-      { name: "Dallas", lat: 32.7767, lng: -96.7970 },
-      { name: "Seattle", lat: 47.6062, lng: -122.3321 },
-      { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
-      { name: "Minneapolis", lat: 44.9778, lng: -93.2650 },
-    ];
+async function fetchAndCacheRestaurants() {
+  console.log("🌍 Fetching African restaurants from Google...");
 
-    const africanKeywords = [
-      "african",
-      "nigerian",
-      "ethiopian",
-      "ghanaian",
-      "senegalese",
-      "somali",
-      "cameroonian",
-      "egyptian",
-      "north african",
-      "sudanese",
-      "afro fusion",
-      "afro-caribbean",
-    ];
+  const usCities = [
+    { name: "New York", lat: 40.7128, lng: -74.0060 },
+    { name: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+    { name: "Chicago", lat: 41.8781, lng: -87.6298 },
+    { name: "Houston", lat: 29.7604, lng: -95.3698 },
+    { name: "Atlanta", lat: 33.7490, lng: -84.3880 },
+    { name: "Washington DC", lat: 38.9072, lng: -77.0369 },
+    { name: "Dallas", lat: 32.7767, lng: -96.7970 },
+    { name: "Seattle", lat: 47.6062, lng: -122.3321 },
+    { name: "San Francisco", lat: 37.7749, lng: -122.4194 },
+    { name: "Minneapolis", lat: 44.9778, lng: -93.2650 },
+    { name: "Philadelphia", lat: 39.9526, lng: -75.1652 },
+    { name: "Boston", lat: 42.3601, lng: -71.0589 },
+    { name: "Miami", lat: 25.7617, lng: -80.1918 },
+    { name: "Denver", lat: 39.7392, lng: -104.9903 },
+    { name: "Phoenix", lat: 33.4484, lng: -112.0740 },
+    { name: "Las Vegas", lat: 36.1699, lng: -115.1398 },
+  ];
 
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+  const africanKeywords = [
+    "african", "nigerian", "ethiopian", "ghanaian", "senegalese",
+    "somali", "cameroonian", "egyptian", "north african", "sudanese",
+    "afro fusion", "afro-caribbean",
+  ];
 
-    let allResults = [];
+  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+  let allResults = [];
 
-    // 🔥 Loop through each city
-    for (const city of usCities) {
-      let nextPageToken = null;
+  for (const city of usCities) {
+    let nextPageToken = null;
+    do {
+      const response = await axios.get(url, {
+        params: {
+          key: process.env.GOOGLE_PLACES_API_KEY,
+          location: `${city.lat},${city.lng}`,
+          radius: 10000,
+          type: "restaurant",
+          keyword: "african restaurant",
+          pagetoken: nextPageToken,
+        },
+      });
 
-      do {
-        const response = await axios.get(url, {
-          params: {
-            key: process.env.GOOGLE_PLACES_API_KEY,
-            location: `${city.lat},${city.lng}`,
-            radius: 10000, // 10km radius
-            type: "restaurant",
-            keyword: "african restaurant",
-            pagetoken: nextPageToken,
-          },
-        });
+      if (response.data.results?.length) {
+        response.data.results.forEach(r => r.city = city.name);
+        allResults.push(...response.data.results);
+      }
 
-        if (response.data.results?.length) {
-          // attach city info for reference
-          response.data.results.forEach(r => {
-            r.city = city.name;
-          });
+      nextPageToken = response.data.next_page_token;
+      if (nextPageToken) await new Promise(r => setTimeout(r, 2000));
+    } while (nextPageToken && allResults.length < 2000);
+  }
 
-          allResults.push(...response.data.results);
-        }
+  const filteredResults = allResults.filter(place =>
+    africanKeywords.some(k =>
+      `${place.name} ${place.vicinity || ""}`.toLowerCase().includes(k)
+    )
+  );
 
-        nextPageToken = response.data.next_page_token;
-        if (nextPageToken) await new Promise(r => setTimeout(r, 2000)); // wait for token
-      } while (nextPageToken && allResults.length < 500);
-    }
+  const limitedResults = filteredResults.slice(0, 1000);
 
-    // 🔎 Filter to African cuisines
-    const filteredResults = allResults.filter(place =>
-      africanKeywords.some(k =>
-        `${place.name} ${place.vicinity || ""}`.toLowerCase().includes(k)
-      )
-    );
+  console.log(`🌟 Fetching reviews for ${limitedResults.length} restaurants...`);
 
-    // 🔑 Limit results to avoid huge payload
-    const limitedResults = filteredResults.slice(0, 50);
-
-    // 🔑 Fetch reviews for top restaurants
-    const withReviews = await Promise.all(
-      limitedResults.slice(0, 15).map(async (place) => {
+  const batchSize = 50;
+  let withReviews = [];
+  for (let i = 0; i < limitedResults.length; i += batchSize) {
+    const batch = limitedResults.slice(i, i + batchSize);
+    const batchWithReviews = await Promise.all(
+      batch.map(async place => {
         const reviews = await fetchReviews(place.place_id);
-        return {
-          ...place,
-          reviews: reviews.slice(0, 3),
-        };
+        return { ...place, reviews: reviews.slice(0, 20) }; // 20 reviews
       })
     );
+    withReviews.push(...batchWithReviews);
+  }
 
-    return success(res, "African restaurants across the US", withReviews);
+  console.log(`💾 Caching ${withReviews.length} restaurants with reviews`);
+  writeCache(withReviews);
+
+  return withReviews;
+}
+
+// ✅ API Handler
+exports.getRestaurants = async (req, res) => {
+  try {
+    const cachedData = readCache();
+    if (cachedData && cachedData.length > 0) {
+      console.log("📌 Returning cached restaurants with reviews");
+      return success(res, "African restaurants across the US (from cache)", cachedData);
+    }
+
+    // Fetch + cache if not available
+    const data = await fetchAndCacheRestaurants();
+    return success(res, "African restaurants across the US", data);
+
   } catch (err) {
-    console.error("❌ Error fetching African restaurants:", err.response?.data || err.message);
+    console.error("❌ Error fetching African restaurants:", err.message);
     return error(res, "Failed to fetch African restaurants", 500, err.message);
   }
 };
+
+// 🕒 Schedule cache refresh every 24 hours at midnight
+cron.schedule("0 0 * * *", async () => {
+  console.log("⏰ Running daily cache refresh for African restaurants...");
+  try {
+    await fetchAndCacheRestaurants();
+    console.log("✅ Daily cache refresh complete");
+  } catch (err) {
+    console.error("❌ Failed to refresh cache:", err);
+  }
+});
+
+
 
 
 

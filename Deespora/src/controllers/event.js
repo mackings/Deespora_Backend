@@ -1,6 +1,6 @@
 const axios = require("axios");
 const { success, error } = require("../utils/response");
-const PQueue = require("p-queue").default;
+
 
 
 
@@ -14,7 +14,6 @@ const cities = [
   "Dublin", "Cork", // Ireland
   "Madrid", "Barcelona" // Spain,
 ];
-
 
 
 
@@ -80,10 +79,9 @@ exports.getEvents = async (req, res) => {
       }
     };
 
-    // --- Queue with controlled concurrency (3 at a time) ---
-    const queue = new PQueue({ concurrency: 3 });
+    // --- No PQueue: run all in parallel ---
     const results = await Promise.allSettled(
-      searchTerms.map(term => queue.add(() => makeRequest(term)))
+      searchTerms.map(term => makeRequest(term))
     );
 
     // Combine all results
@@ -148,33 +146,34 @@ exports.getEvents = async (req, res) => {
       })
       .slice(0, 10);
 
-  
-const apiEvents = finalEvents.map(e => ({
-  id: e.id || '',
-  name: e.name || '',
-  type: e.type || '',
-  url: e.url || '',
-  images: e.images || [],               // stays as is
-  sales: e.sales || {},                 // stays as is
-  dates: e.dates || {},                 // stays as is
-  classifications: e.classifications || [], // stays as is
-  // 👇 wrap venues so Flutter finds them under _embedded.venues
-  _embedded: {
-    venues: e._embedded?.venues || e.venues || []
-  }
-}));
+    // ✅ Match Flutter model
+    const apiEvents = finalEvents.map(e => ({
+      id: e.id || '',
+      name: e.name || '',
+      type: e.type || '',
+      url: e.url || '',
+      images: e.images || [],
+      sales: e.sales || {},
+      dates: e.dates || {},
+      classifications: e.classifications || [],
+      _embedded: {
+        venues: e._embedded?.venues || e.venues || []
+      }
+    }));
 
-return res.json({
-  success: true,
-  message: `Found ${apiEvents.length} African events in the US`,
-  data: apiEvents     // keep it as a list so your parseEvents() works
-});
-
-
+    return res.json({
+      success: true,
+      message: `Found ${apiEvents.length} African events in the US`,
+      data: apiEvents
+    });
 
   } catch (err) {
     console.error("❌ Main error:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to fetch African events", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch African events",
+      error: err.message
+    });
   }
 };
 
