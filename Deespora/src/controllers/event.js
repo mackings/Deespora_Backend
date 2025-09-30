@@ -3,22 +3,23 @@ const { success, error } = require("../utils/response");
 const { readCache, writeCache } = require('../utils/RestCache');
 const cron = require("node-cron");
 
-const CACHE_FILE = "events"; // separate cache for events
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
 
-// 🔥 Fetch and filter Ticketmaster events
+
+const CACHE_FILE = "events";         // separate cache for events
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// 🔥 Fetch Ticketmaster African events
 async function fetchAndCacheEvents() {
-  const cachedData = readCache(CACHE_FILE);
   const now = Date.now();
+  const cached = readCache(CACHE_FILE);
 
-  // ✅ Return cache if it exists and is fresh
-  if (cachedData && cachedData._timestamp && now - cachedData._timestamp < CACHE_TTL) {
+  // ✅ Return cache if fresh
+  if (cached?._timestamp && now - cached._timestamp < CACHE_TTL) {
     console.log("📂 Returning events from cache");
-    return cachedData.data;
+    return cached.data;
   }
 
   const url = "https://app.ticketmaster.com/discovery/v2/events.json";
-
   const formatDateForTM = (date = new Date()) =>
     date.toISOString().replace(/\.\d{3}Z$/, "Z");
 
@@ -30,9 +31,7 @@ async function fetchAndCacheEvents() {
     "Stonebwoy","Shatta Wale","Sarkodie","Tyla","Nasty C",
     "Black Coffee","Master KG","Diamond Platnumz","Angelique Kidjo","Fally Ipupa"
   ];
-
   const africanKeywords = ["afrobeat","afrobeats","african music","african festival","amapiano"];
-
   const searchTerms = [...africanArtists.slice(0, 6), ...africanKeywords];
 
   const makeRequest = async (term, attempt = 0) => {
@@ -59,12 +58,10 @@ async function fetchAndCacheEvents() {
     }
   };
 
-  // --- Run all searches in parallel ---
   const results = await Promise.allSettled(searchTerms.map(term => makeRequest(term)));
-
   let allEvents = results.filter(r => r.status === "fulfilled").flatMap(r => r.value);
 
-  // Fallback if no events found
+  // Fallback search
   if (!allEvents.length) {
     try {
       const { data } = await axios.get(url, {
@@ -87,7 +84,6 @@ async function fetchAndCacheEvents() {
   // Deduplicate
   const uniqueEvents = Array.from(new Map(allEvents.map(e => [e.id, e])).values());
 
-  // Filter African-related
   const africanTerms = [
     ...africanArtists.map(a => a.toLowerCase()),
     "african","afrobeat","afrobeats","amapiano","highlife","nigeria","ghana","south africa"
@@ -105,12 +101,9 @@ async function fetchAndCacheEvents() {
   });
 
   const finalEvents = (filtered.length ? filtered : uniqueEvents)
-    .sort((a, b) => {
-      const da = new Date(a.dates?.start?.dateTime || a.dates?.start?.localDate || 0);
-      const db = new Date(b.dates?.start?.dateTime || b.dates?.start?.localDate || 0);
-      return da - db;
-    })
-    .slice(0, 20); // top 20 events
+    .sort((a, b) => new Date(a.dates?.start?.dateTime || a.dates?.start?.localDate || 0) - 
+                    new Date(b.dates?.start?.dateTime || b.dates?.start?.localDate || 0))
+    .slice(0, 20);
 
   const apiEvents = finalEvents.map(e => ({
     id: e.id || '',
@@ -121,25 +114,21 @@ async function fetchAndCacheEvents() {
     sales: e.sales || {},
     dates: e.dates || {},
     classifications: e.classifications || [],
-    _embedded: {
-      venues: e._embedded?.venues || e.venues || []
-    }
+    _embedded: { venues: e._embedded?.venues || e.venues || [] }
   }));
 
-  // Save to cache with timestamp
+  // ✅ Save to separate events cache
   writeCache({ data: apiEvents, _timestamp: now }, CACHE_FILE);
-
   return apiEvents;
 }
 
-// ✅ API handler with caching
+// ✅ API handler
 exports.getEvents = async (req, res) => {
   try {
     const events = await fetchAndCacheEvents();
-    const source = (readCache(CACHE_FILE)? "cache" : "api");
     return res.json({
       success: true,
-      message: `African events across the US (from ${source})`,
+      message: `African events across the US`,
       data: events
     });
   } catch (err) {
@@ -152,9 +141,9 @@ exports.getEvents = async (req, res) => {
   }
 };
 
-// 🕒 Auto-refresh cache every 24 hours
+// 🕒 Auto-refresh events cache every 24 hours
 cron.schedule("0 0 * * *", async () => {
-  console.log("⏰ Refreshing African events cache...");
+  console.log("⏰ Running daily cache refresh for African events...");
   try {
     await fetchAndCacheEvents();
     console.log("✅ Events cache refreshed");
@@ -162,6 +151,8 @@ cron.schedule("0 0 * * *", async () => {
     console.error("❌ Failed to refresh events cache:", err);
   }
 });
+
+
 
 
 

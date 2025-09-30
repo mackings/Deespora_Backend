@@ -1,32 +1,31 @@
 const fs = require('fs');
 const path = require('path');
 
-const CACHE_FILE = path.join(__dirname, 'restaurantCache.json');
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in ms
 
-function readCache() {
+
+function getCachePath(name) {
+  return path.join(__dirname, `${name}Cache.json`);
+}
+
+function readCache(name) {
+  const CACHE_FILE = getCachePath(name);
   if (!fs.existsSync(CACHE_FILE)) return null;
 
   try {
     const data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
-    const age = Date.now() - data.timestamp;
-    if (age > CACHE_DURATION) return null; // cache expired
-    return data.restaurants;
+    return data;
   } catch (err) {
-    console.error('❌ Error reading cache', err);
+    console.error(`❌ Error reading cache "${name}"`, err);
     return null;
   }
 }
 
-function writeCache(restaurants) {
+function writeCache(data, name) {
+  const CACHE_FILE = getCachePath(name);
   try {
-    fs.writeFileSync(
-      CACHE_FILE,
-      JSON.stringify({ timestamp: Date.now(), restaurants }),
-      'utf-8'
-    );
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(data), 'utf-8');
   } catch (err) {
-    console.error('❌ Error writing cache', err);
+    console.error(`❌ Error writing cache "${name}"`, err);
   }
 }
 
