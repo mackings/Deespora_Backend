@@ -8,9 +8,8 @@ const cron = require("node-cron");
 cron.schedule("0 0 * * *", async () => {
   console.log("⏰ Running daily cache refresh for African restaurants...");
   try {
-    // Call your function that fetches and caches restaurants
     await getRestaurants({ /* dummy req */ }, { 
-      json: () => {}, // dummy res.json
+      json: () => {},
       status: () => ({ json: () => {} }),
     });
     console.log("✅ Cache refreshed successfully");
@@ -19,44 +18,63 @@ cron.schedule("0 0 * * *", async () => {
   }
 });
 
+// =======================
+// Helpers
+// =======================
 
-// helper: fetch reviews for a single place
+// 🔎 Fetch reviews for a single place
 async function fetchReviews(placeId) {
   const url = `https://maps.googleapis.com/maps/api/place/details/json`;
-  const resp = await axios.get(url, {
-    params: {
-      place_id: placeId,
-      key: process.env.GOOGLE_PLACES_API_KEY,
-      fields: "name,rating,user_ratings_total,reviews",
-    },
-  });
+  try {
+    const resp = await axios.get(url, {
+      params: {
+        place_id: placeId,
+        key: process.env.GOOGLE_PLACES_API_KEY,
+        fields: "name,rating,user_ratings_total,reviews",
+      },
+    });
 
-  return resp.data.result?.reviews || [];
+    if (resp.data.status !== "OK") {
+      console.error(`⚠️ [Google Places Details] status=${resp.data.status}`, resp.data.error_message);
+    }
+
+    return resp.data.result?.reviews || [];
+  } catch (err) {
+    console.error("❌ [fetchReviews] Request failed:", err.response?.data || err.message);
+    return [];
+  }
 }
 
-// helper: resolve a city name to lat/lng using Geocoding API
+// 🔎 Resolve a city name to lat/lng
 async function getCityCoordinates(city) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json`;
-  const resp = await axios.get(url, {
-    params: {
-      address: city,
-      key: process.env.GOOGLE_PLACES_API_KEY,
-    },
-  });
+  try {
+    const resp = await axios.get(url, {
+      params: {
+        address: city,
+        key: process.env.GOOGLE_PLACES_API_KEY,
+      },
+    });
 
-  if (!resp.data.results || resp.data.results.length === 0) {
-    throw new Error(`Could not find coordinates for "${city}"`);
+    if (resp.data.status !== "OK") {
+      console.error(`⚠️ [Geocode] status=${resp.data.status}`, resp.data.error_message);
+    }
+
+    if (!resp.data.results || resp.data.results.length === 0) {
+      throw new Error(`Could not find coordinates for "${city}"`);
+    }
+
+    const { lat, lng } = resp.data.results[0].geometry.location;
+    return { lat, lng };
+  } catch (err) {
+    console.error("❌ [getCityCoordinates] Request failed:", err.response?.data || err.message);
+    throw err;
   }
-
-  const { lat, lng } = resp.data.results[0].geometry.location;
-  return { lat, lng };
 }
 
-// --------------------------------------------------
-// GET nearby restaurants + reviews (supports any city)
-// --------------------------------------------------
-
-
+// =======================
+// Fetch & cache restaurants
+// =======================
 async function fetchAndCacheRestaurants() {
   console.log("🌍 Fetching African restaurants from Google...");
 
@@ -89,26 +107,40 @@ async function fetchAndCacheRestaurants() {
   let allResults = [];
 
   for (const city of usCities) {
+    console.log(`📍 Searching restaurants in ${city.name}...`);
     let nextPageToken = null;
+
     do {
-      const response = await axios.get(url, {
-        params: {
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          location: `${city.lat},${city.lng}`,
-          radius: 10000,
-          type: "restaurant",
-          keyword: "african restaurant",
-          pagetoken: nextPageToken,
-        },
-      });
+      try {
+        const response = await axios.get(url, {
+          params: {
+            key: process.env.GOOGLE_PLACES_API_KEY,
+            location: `${city.lat},${city.lng}`,
+            radius: 10000,
+            type: "restaurant",
+            keyword: "african restaurant",
+            pagetoken: nextPageToken,
+          },
+        });
 
-      if (response.data.results?.length) {
-        response.data.results.forEach(r => r.city = city.name);
-        allResults.push(...response.data.results);
+        if (response.data.status !== "OK") {
+          console.error(`⚠️ [Nearby Search] city=${city.name} status=${response.data.status}`, response.data.error_message);
+        }
+
+        if (response.data.results?.length) {
+          response.data.results.forEach(r => (r.city = city.name));
+          allResults.push(...response.data.results);
+        }
+
+        nextPageToken = response.data.next_page_token;
+        if (nextPageToken) {
+          console.log(`⏳ Waiting for next page in ${city.name}...`);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      } catch (err) {
+        console.error(`❌ [Nearby Search] Failed in ${city.name}:`, err.response?.data || err.message);
+        break;
       }
-
-      nextPageToken = response.data.next_page_token;
-      if (nextPageToken) await new Promise(r => setTimeout(r, 2000));
     } while (nextPageToken && allResults.length < 2000);
   }
 
@@ -124,12 +156,13 @@ async function fetchAndCacheRestaurants() {
 
   const batchSize = 50;
   let withReviews = [];
+
   for (let i = 0; i < limitedResults.length; i += batchSize) {
     const batch = limitedResults.slice(i, i + batchSize);
     const batchWithReviews = await Promise.all(
       batch.map(async place => {
         const reviews = await fetchReviews(place.place_id);
-        return { ...place, reviews: reviews.slice(0, 20) }; // 20 reviews
+        return { ...place, reviews: reviews.slice(0, 20) };
       })
     );
     withReviews.push(...batchWithReviews);
@@ -150,27 +183,24 @@ exports.getRestaurants = async (req, res) => {
       return success(res, "African restaurants across the US (from cache)", cachedData);
     }
 
-    // Fetch + cache if not available
     const data = await fetchAndCacheRestaurants();
     return success(res, "African restaurants across the US", data);
-
   } catch (err) {
-    console.error("❌ Error fetching African restaurants:", err.message);
+    console.error("❌ Error fetching African restaurants:", err.response?.data || err.message);
     return error(res, "Failed to fetch African restaurants", 500, err.message);
   }
 };
 
-// 🕒 Schedule cache refresh every 24 hours at midnight
+// 🕒 Daily refresh at midnight
 cron.schedule("0 0 * * *", async () => {
   console.log("⏰ Running daily cache refresh for African restaurants...");
   try {
     await fetchAndCacheRestaurants();
     console.log("✅ Daily cache refresh complete");
   } catch (err) {
-    console.error("❌ Failed to refresh cache:", err);
+    console.error("❌ Failed to refresh cache:", err.response?.data || err.message);
   }
 });
-
 
 
 
