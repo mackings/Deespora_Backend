@@ -5,7 +5,7 @@ const cron = require("node-cron");
 
 
 
-cron.schedule("0 0 * * *", async () => {
+cron.schedule("59 23 28-31 * *", async () => {
   console.log("⏰ Running daily cache refresh for African restaurants...");
   try {
     await getRestaurants({ /* dummy req */ }, { 

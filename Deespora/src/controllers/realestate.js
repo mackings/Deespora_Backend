@@ -175,7 +175,7 @@ exports.getRealEstateCompanies = async (req, res) => {
 // =======================
 // Cron Job - Refresh Daily at Midnight
 // =======================
-cron.schedule("0 0 * * *", async () => {
+cron.schedule("59 23 28-31 * *",  async () => {
   console.log("⏰ Running daily cache refresh for African real estate companies...");
   try {
     await fetchAndCacheRealEstateCompanies();
