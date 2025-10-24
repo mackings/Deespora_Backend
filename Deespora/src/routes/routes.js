@@ -15,6 +15,7 @@ const {
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
+const { getCateringCompanies } = require("../controllers/catering.js");
 
 
 
@@ -44,6 +45,11 @@ router.get("/search-restaurants", searchRestaurants);
 
 //RealEstate
 router.get("/realestate", getRealEstateCompanies);
+
+
+//Catering
+router.get("/catering", getCateringCompanies);
+
 
 
 
