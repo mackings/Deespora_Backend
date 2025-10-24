@@ -14,6 +14,7 @@ const {
   verifyEmailOtp
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
+const { getRealEstateCompanies } = require("../controllers/realestate.js");
 
 
 
@@ -40,6 +41,9 @@ router.post("/search-events", searchEvent);
 
 router.get("/restaurants", getRestaurants);
 router.get("/search-restaurants", searchRestaurants);
+
+//RealEstate
+router.get("/realestate", getRealEstateCompanies);
 
 
 
