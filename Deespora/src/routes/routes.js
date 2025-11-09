@@ -11,7 +11,9 @@ const {
   requestPasswordReset,
   resetPassword,
   sendEmailOtp,
-  verifyEmailOtp
+  verifyEmailOtp,
+  getAllUsers,
+  getUser
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
@@ -49,6 +51,12 @@ router.get("/realestate", getRealEstateCompanies);
 
 //Catering
 router.get("/catering", getCateringCompanies);
+
+
+//Users
+
+router.get("/all-users", getAllUsers);
+router.get("/get-user", getUser);
 
 
 

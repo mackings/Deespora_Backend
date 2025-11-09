@@ -189,3 +189,58 @@ exports.verifyEmailOtp = async (req, res) => {
 
 
 
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-passwordHash -resetPasswordTokenHash -emailOtp')
+      .sort({ createdAt: -1 });
+
+    return success(res, "Users retrieved successfully", {
+      total: users.length,
+      users: users.map(user => ({
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        phoneVerified: user.phoneVerified,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      }))
+    });
+  } catch (e) {
+    return error(res, e.message, 500);
+  }
+};
+
+
+exports.getUser = async (req, res) => {
+  try {
+    const { id } = req.query;
+    
+    const user = await User.findById(id)
+      .select('-passwordHash -resetPasswordTokenHash -emailOtp');
+
+    if (!user) return error(res, "User not found", 404);
+
+    return success(res, "User retrieved successfully", {
+      id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      phoneVerified: user.phoneVerified,
+      emailVerified: user.emailVerified,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+  } catch (e) {
+    if (e.kind === 'ObjectId') return error(res, "Invalid user ID", 400);
+    return error(res, e.message, 500);
+  }
+};
+
+
+
