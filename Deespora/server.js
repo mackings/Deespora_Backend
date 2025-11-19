@@ -9,6 +9,7 @@ const dotenv = require("dotenv");
 require("./src/utils/db.js");
 const routes = require("./src/routes/routes.js");
 
+
 dotenv.config();
 const app = express();
 
