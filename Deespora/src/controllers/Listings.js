@@ -1,4 +1,44 @@
 const express = require ("express");
+const Category = require("../models/listingModel");
+const Listing = require("../models/listingModel");
+const ImageKit = require("imagekit");
+
+
+
+// Initialize ImageKit
+const imagekit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+});
+
+// Helper function to upload image to ImageKit
+const uploadToImageKit = async (file, fileName, folder = "listings") => {
+  try {
+    const result = await imagekit.upload({
+      file: file, // base64 string or buffer or url
+      fileName: fileName,
+      folder: folder,
+      useUniqueFileName: true,
+    });
+    return result.url;
+  } catch (error) {
+    throw new Error(`Image upload failed: ${error.message}`);
+  }
+};
+
+// Helper function to delete image from ImageKit
+const deleteFromImageKit = async (fileId) => {
+  try {
+    await imagekit.deleteFile(fileId);
+  } catch (error) {
+    console.error("Failed to delete image from ImageKit:", error.message);
+  }
+};
+
+// ===============================
+// LISTING CONTROLLERS
+// ===============================
 
 exports.createListing = async (req, res) => {
   try {
@@ -29,6 +69,23 @@ exports.createListing = async (req, res) => {
       return error(res, "Invalid category", 404);
     }
 
+    // Handle image uploads to ImageKit
+    let uploadedImages = [];
+    if (images && images.length > 0) {
+      if (images.length > 6) {
+        return error(res, "Maximum 6 images allowed", 400);
+      }
+
+      for (let i = 0; i < images.length; i++) {
+        const imageUrl = await uploadToImageKit(
+          images[i],
+          `${title.replace(/\s+/g, "-")}-${Date.now()}-${i}`,
+          "listings"
+        );
+        uploadedImages.push(imageUrl);
+      }
+    }
+
     const listing = await Listing.create({
       title,
       description,
@@ -37,7 +94,7 @@ exports.createListing = async (req, res) => {
       contactPhone,
       websiteUrl,
       eventDate,
-      images: images || [],
+      images: uploadedImages,
       createdBy: userId,
       status: true,
       promoted: promoteOnHomepage || highlightInNewsletter || addTrendingBadge || false,
@@ -60,10 +117,43 @@ exports.createListing = async (req, res) => {
         contactPhone: listing.contactPhone,
         websiteUrl: listing.websiteUrl,
         eventDate: listing.eventDate,
+        images: listing.images,
         promoted: listing.promoted,
         status: listing.status,
         createdAt: listing.createdAt,
       },
+    });
+  } catch (e) {
+    return error(res, e.message, 500);
+  }
+};
+
+exports.uploadListingImages = async (req, res) => {
+  try {
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return error(res, "No images provided", 400);
+    }
+
+    if (files.length > 6) {
+      return error(res, "Maximum 6 images allowed", 400);
+    }
+
+    const uploadedImages = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const imageUrl = await uploadToImageKit(
+        file.buffer,
+        `listing-${Date.now()}-${i}`,
+        "listings"
+      );
+      uploadedImages.push(imageUrl);
+    }
+
+    return success(res, "Images uploaded successfully", {
+      images: uploadedImages,
     });
   } catch (e) {
     return error(res, e.message, 500);
@@ -252,6 +342,7 @@ exports.updateListing = async (req, res) => {
         contactPhone: listing.contactPhone,
         websiteUrl: listing.websiteUrl,
         eventDate: listing.eventDate,
+        images: listing.images,
         status: listing.status,
         updatedAt: listing.updatedAt,
       },
@@ -286,6 +377,28 @@ exports.deleteListing = async (req, res) => {
 // ===============================
 // CATEGORY CONTROLLERS
 // ===============================
+
+exports.uploadCategoryIcon = async (req, res) => {
+  try {
+    const file = req.file;
+
+    if (!file) {
+      return error(res, "No icon provided", 400);
+    }
+
+    const iconUrl = await uploadToImageKit(
+      file.buffer,
+      `category-icon-${Date.now()}`,
+      "categories"
+    );
+
+    return success(res, "Icon uploaded successfully", {
+      icon: iconUrl,
+    });
+  } catch (e) {
+    return error(res, e.message, 500);
+  }
+};
 
 exports.createCategory = async (req, res) => {
   try {
