@@ -18,6 +18,7 @@ const {
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
 const { getCateringCompanies } = require("../controllers/catering.js");
+const { createCategory, getCategories, getCategoryById, updateCategory, deleteCategory, createListing, promoteListing,getListings,getListingById ,updateListing,deleteListing} = require("../controllers/Listings.js");
 
 
 
@@ -58,6 +59,23 @@ router.get("/catering", getCateringCompanies);
 router.get("/all-users", getAllUsers);
 router.get("/get-user", getUser);
 
+
+
+router.post("/categories", createCategory);
+router.get("/categories", getCategories);
+router.get("/categories/:categoryId", getCategoryById);
+router.put("/categories/:categoryId", updateCategory);
+router.delete("/categories/:categoryId", deleteCategory);
+
+// ===============================
+// LISTING ROUTES
+// ===============================
+router.post("/listings", createListing);
+router.get("/listings", getListings);
+router.get("/listings/:listingId", getListingById);
+router.put("/listings/:listingId",  updateListing);
+router.delete("/listings/:listingId",  deleteListing);
+router.post("/listings/:listingId/promote", promoteListing);
 
 
 
