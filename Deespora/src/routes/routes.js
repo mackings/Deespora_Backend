@@ -2,6 +2,7 @@ const express = require("express");
 const { requireAuth } = require("../middleware/auth.js");
 const { getEvents, searchEvent } = require("../controllers/event.js");
 const router = express.Router();
+const {upload} = require("../middleware/upload.js")
 
 
 const {
@@ -59,9 +60,8 @@ router.get("/catering", getCateringCompanies);
 router.get("/all-users", getAllUsers);
 router.get("/get-user", getUser);
 
-
-
-router.post("/categories", createCategory);
+// Change this line
+router.post("/listings", upload.any(), createListing);
 router.get("/categories", getCategories);
 router.get("/categories/:categoryId", getCategoryById);
 router.put("/categories/:categoryId", updateCategory);
