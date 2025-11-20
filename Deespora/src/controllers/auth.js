@@ -18,7 +18,7 @@ dotenv.config();
 
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, phoneNumber } = req.body;
+    const { firstName, lastName, email, password, phoneNumber, role } = req.body;
 
     if (!firstName || !lastName || !email || !password || !phoneNumber) {
       return error(res, "First name, last name, email, phone number, and password are required", 400);
@@ -33,7 +33,15 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const user = await User.create({ firstName, lastName, email, passwordHash, phoneNumber, phoneVerified: false });
+    const user = await User.create({
+      firstName,
+      lastName,
+      email,
+      passwordHash,
+      phoneNumber,
+      role: role || "user", // 👈 allow setting role manually if needed
+      phoneVerified: false,
+    });
 
     return success(res, "Registered", {
       id: user._id,
@@ -41,6 +49,7 @@ exports.register = async (req, res) => {
       lastName: user.lastName,
       email: user.email,
       phoneVerified: user.phoneVerified,
+      role: user.role, 
     }, 201);
   } catch (e) {
     if (e.code === 11000) {
@@ -54,6 +63,7 @@ exports.register = async (req, res) => {
 
 
 
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -61,17 +71,22 @@ exports.login = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return error(res, "Invalid credentials", 401);
 
+    // ❌ Block if deactivated
+    if (!user.isActive)
+      return error(res, "Your account has been deactivated. Contact support.", 403);
+
     const ok = await user.comparePassword(password);
     if (!ok) return error(res, "Invalid credentials", 401);
 
-    const token = signJwt({ uid: String(user._id), email: user.email });
+    const token = signJwt({ uid: String(user._id), email: user.email, role: user.role });
 
     return success(res, "Login successful", {
       token,
       user: {
         id: user._id,
-        username:user.firstName,
+        username: user.firstName,
         email: user.email,
+        role: user.role,        // 👈 include role
         phoneVerified: user.phoneVerified,
         emailVerified: user.emailVerified,
       },
@@ -80,6 +95,45 @@ exports.login = async (req, res) => {
     return error(res, e.message, 500);
   }
 };
+
+
+exports.deactivateUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!updated) return error(res, "User not found", 404);
+
+    return success(res, "User deactivated successfully", updated);
+  } catch (e) {
+    return error(res, e.message, 500);
+  }
+};
+
+
+exports.activateUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      { isActive: true },
+      { new: true }
+    );
+
+    if (!updated) return error(res, "User not found", 404);
+
+    return success(res, "User activated successfully", updated);
+  } catch (e) {
+    return error(res, e.message, 500);
+  }
+};
+
 
 
 exports.requestPasswordReset = async (req, res) => {
@@ -105,6 +159,9 @@ exports.requestPasswordReset = async (req, res) => {
     return error(res, e.message, 500);
   }
 };
+
+
+
 
 
 exports.resetPassword = async (req, res) => {

@@ -14,7 +14,9 @@ const {
   sendEmailOtp,
   verifyEmailOtp,
   getAllUsers,
-  getUser
+  getUser,
+  deactivateUser,
+  activateUser
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
@@ -26,6 +28,8 @@ const { createCategory, getCategories, getCategoryById, updateCategory, deleteCa
 // Email/password
 router.post("/register", register);
 router.post("/login", login);
+router.patch("/deactivate/:userId",  deactivateUser);
+router.patch("/activate/:userId", activateUser);
 //router.get("/me", requireAuth, me);
 
 // Password reset
