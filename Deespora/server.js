@@ -20,6 +20,7 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
   "https://deespora.netlify.app",
+  "https://deesporabackend.vercel.app/listings",
   process.env.CLIENT_URL
 ].filter(Boolean);
 
