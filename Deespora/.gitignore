@@ -1,1 +1,18 @@
 .vercel
+
+# .gitignore
+node_modules/
+.env
+.DS_Store
+*.log
+
+# Exclude other project directories if they exist
+mackings/
+HulexBE/
+wwBackend/
+
+# Common IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
