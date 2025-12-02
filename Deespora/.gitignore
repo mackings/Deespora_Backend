@@ -16,3 +16,9 @@ wwBackend/
 .idea/
 *.swp
 *.swo
+
+# Exclude other projects
+Deespora/
+HulexBE/
+wwBackend/
+.DS_Store
