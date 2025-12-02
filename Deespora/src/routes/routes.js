@@ -16,7 +16,9 @@ const {
   getAllUsers,
   getUser,
   deactivateUser,
-  activateUser
+  activateUser,
+  sendPhoneOtp,
+  verifyPhoneOtp
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
@@ -36,9 +38,8 @@ router.patch("/activate/:userId", activateUser);
 router.post("/request-password-reset", requestPasswordReset);
 router.post("/reset-password", resetPassword);
 
-// Firebase Phone
-router.post("/send-otp", sendEmailOtp);
-router.post("/verify-otp", verifyEmailOtp);
+router.post('/phone/send-otp', sendPhoneOtp);
+router.post('/phone/verify-otp', verifyPhoneOtp);
 
 
 //Events

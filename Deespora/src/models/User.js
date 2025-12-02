@@ -19,6 +19,10 @@ const userSchema = new mongoose.Schema(
 
     emailOtp: { type: String, default: null },
     emailOtpExpires: { type: Date, default: null },
+
+    // Add phone OTP fields
+    phoneOtp: { type: String, default: null },
+    phoneOtpExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );

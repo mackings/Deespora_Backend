@@ -4,6 +4,7 @@ const { success, error } = require("../utils/response");
 const { signJwt } = require("../utils/jwt");
 const { randomToken, hashToken, compareToken } = require("../utils/crypto");
 const { sendEmail } = require("../utils/sendEmail");
+const {sendSMS} = require("../utils/twilio")
 const dotenv = require("dotenv");
 const axios = require("axios");
 const mongoose = require("mongoose");
@@ -296,6 +297,81 @@ exports.getUser = async (req, res) => {
   } catch (e) {
     if (e.kind === 'ObjectId') return error(res, "Invalid user ID", 400);
     return error(res, e.message, 500);
+  }
+};
+
+
+exports.sendPhoneOtp = async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) return error(res, "Phone number required", 400);
+
+    const user = await User.findOne({ phoneNumber });
+    if (!user) return error(res, "User not found", 404);
+
+    // ❌ Block if deactivated
+    if (!user.isActive)
+      return error(res, "Your account has been deactivated. Contact support.", 403);
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.phoneOtp = otp;
+    user.phoneOtpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    await user.save();
+
+    // Send SMS via Twilio
+    await sendSMS({
+      to: phoneNumber,
+      message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
+    });
+
+    return success(res, "Verification code sent to phone");
+  } catch (err) {
+    return error(res, "Failed to send OTP", 500, err.message);
+  }
+};
+
+
+
+exports.verifyPhoneOtp = async (req, res) => {
+  try {
+    const { phoneNumber, code } = req.body;
+    if (!phoneNumber || !code) return error(res, "Phone number and code required", 400);
+
+    const user = await User.findOne({ phoneNumber });
+    if (!user) return error(res, "User not found", 404);
+
+    // ❌ Block if deactivated
+    if (!user.isActive)
+      return error(res, "Your account has been deactivated. Contact support.", 403);
+
+    if (!user.phoneOtp || user.phoneOtpExpires < Date.now()) {
+      return error(res, "OTP expired. Request a new one.", 400);
+    }
+    if (user.phoneOtp !== code) return error(res, "Invalid OTP", 401);
+
+    // Clear OTP and mark phone as verified
+    user.phoneVerified = true;
+    user.phoneOtp = null;
+    user.phoneOtpExpires = null;
+    await user.save();
+
+    const token = signJwt({ uid: String(user._id), email: user.email, role: user.role });
+
+    return success(res, "Phone verified and logged in successfully", {
+      token,
+      user: {
+        id: user._id,
+        username: user.firstName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        role: user.role,
+        phoneVerified: user.phoneVerified,
+        emailVerified: user.emailVerified,
+      },
+    });
+  } catch (err) {
+    return error(res, err.message, 500);
   }
 };
 
