@@ -38,8 +38,14 @@ router.patch("/activate/:userId", activateUser);
 router.post("/request-password-reset", requestPasswordReset);
 router.post("/reset-password", resetPassword);
 
+
 router.post('/phone/send-otp', sendPhoneOtp);
 router.post('/phone/verify-otp', verifyPhoneOtp);
+
+
+
+router.post('/auth/send-otp', sendEmailOtp);
+router.post('/auth/verify-otp', verifyEmailOtp);
 
 
 //Events
