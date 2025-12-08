@@ -98,6 +98,8 @@ exports.register = async (req, res) => {
   }
 };
 
+
+
 // ============================================
 // LOGIN
 // ============================================
@@ -175,6 +177,8 @@ exports.login = async (req, res) => {
   }
 };
 
+
+
 // ============================================
 // USER MANAGEMENT (Admin only)
 // ============================================
@@ -210,6 +214,8 @@ exports.deactivateUser = async (req, res) => {
   }
 };
 
+
+
 exports.activateUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -232,62 +238,114 @@ exports.activateUser = async (req, res) => {
   }
 };
 
+
+
 // ============================================
 // PASSWORD RESET
 // ============================================
+
 exports.requestPasswordReset = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, phoneNumber } = req.body;
 
-    if (!email) {
-      return error(res, "Email is required", 400);
+    if (!email && !phoneNumber) {
+      return error(res, "Email or phone number is required", 400);
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (email && phoneNumber) {
+      return error(res, "Please provide either email or phone number, not both", 400);
+    }
+
+    let user;
+    let resetMethod;
+
+    if (email) {
+      user = await User.findOne({ email: email.toLowerCase().trim() });
+      resetMethod = "email";
+    } else {
+      user = await User.findOne({ phoneNumber: phoneNumber.trim() });
+      resetMethod = "phone";
+    }
+
+    // Log for debugging
+    console.log('Reset request - Method:', resetMethod);
+    console.log('User found:', !!user);
+    console.log('User active:', user?.isActive);
 
     if (user && user.isActive) {
-      // Generate 5-digit token
-      const token = Math.floor(10000 + Math.random() * 90000).toString();
+      const token = Math.floor(100000 + Math.random() * 900000).toString();
       user.resetPasswordTokenHash = await hashToken(token);
-      user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+      user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
       await user.save();
 
-      // Send email
-      await sendEmail({
-        to: email,
-        subject: "Password Reset Request",
-        html: `
-          <p>You requested a password reset.</p>
-          <p>Your password reset code is:</p>
-          <h2>${token}</h2>
-          <p>This code will expire in 30 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        `,
-      });
+      if (resetMethod === "email") {
+        await sendEmail({
+          to: email,
+          subject: "Password Reset Request",
+          html: `
+            <p>You requested a password reset.</p>
+            <p>Your password reset code is:</p>
+            <h2>${token}</h2>
+            <p>This code will expire in 30 minutes.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+          `,
+        });
+        console.log('Email sent successfully');
+      } else {
+        console.log('Attempting SMS to:', phoneNumber);
+        await sendSMS({
+          to: phoneNumber,
+          message: `Your password reset code is: ${token}. This code will expire in 30 minutes. If you didn't request this, please ignore this message.`,
+        });
+        console.log('SMS sent successfully');
+      }
+    } else {
+      console.log('User not found or inactive - no message sent');
     }
 
-    // Always return success to prevent email enumeration
-    return success(res, "If the email exists, a reset code has been sent.");
+    return success(
+      res,
+      resetMethod === "email"
+        ? "If the email exists, a reset code has been sent."
+        : "If the phone number exists, a reset code has been sent."
+    );
   } catch (e) {
     console.error("Password reset request error:", e);
     return error(res, "Failed to process password reset request", 500);
   }
 };
 
+
+
 exports.resetPassword = async (req, res) => {
   try {
-    const { email, token, password } = req.body;
+    const { email, phoneNumber, token, password } = req.body;
 
     // Validation
-    if (!email || !token || !password) {
-      return error(res, "Email, token, and new password are required", 400);
+    if (!token || !password) {
+      return error(res, "Token and new password are required", 400);
+    }
+
+    if (!email && !phoneNumber) {
+      return error(res, "Email or phone number is required", 400);
+    }
+
+    if (email && phoneNumber) {
+      return error(res, "Please provide either email or phone number, not both", 400);
     }
 
     if (password.length < 8) {
       return error(res, "Password must be at least 8 characters long", 400);
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    let user;
+
+    // Find user by email or phone
+    if (email) {
+      user = await User.findOne({ email: email.toLowerCase().trim() });
+    } else {
+      user = await User.findOne({ phoneNumber: phoneNumber.trim() });
+    }
 
     if (!user || !user.resetPasswordTokenHash || !user.resetPasswordExpiresAt) {
       return error(res, "Invalid or expired reset token", 400);
@@ -325,6 +383,7 @@ exports.resetPassword = async (req, res) => {
     return error(res, "Failed to reset password", 500);
   }
 };
+
 
 // ============================================
 // EMAIL VERIFICATION
@@ -420,9 +479,15 @@ exports.verifyEmailOtp = async (req, res) => {
   }
 };
 
+
+
+
 // ============================================
 // PHONE VERIFICATION
 // ============================================
+
+
+
 exports.sendPhoneOtp = async (req, res) => {
   try {
     const { phoneNumber } = req.body;
@@ -457,6 +522,9 @@ exports.sendPhoneOtp = async (req, res) => {
     return error(res, "Failed to send verification code", 500);
   }
 };
+
+
+
 
 exports.verifyPhoneOtp = async (req, res) => {
   try {
@@ -523,6 +591,9 @@ exports.verifyPhoneOtp = async (req, res) => {
     return error(res, "Failed to verify phone number", 500);
   }
 };
+
+
+
 
 // ============================================
 // USER RETRIEVAL
