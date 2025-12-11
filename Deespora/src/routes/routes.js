@@ -5,6 +5,7 @@ const router = express.Router();
 const {upload} = require("../middleware/upload.js")
 
 
+
 const {
   register,
   login,
@@ -18,7 +19,10 @@ const {
   deactivateUser,
   activateUser,
   sendPhoneOtp,
-  verifyPhoneOtp
+  verifyPhoneOtp,
+  getProfile,
+  updateProfile,
+  deleteAccount
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies } = require("../controllers/realestate.js");
@@ -32,6 +36,22 @@ router.post("/register", register);
 router.post("/login", login);
 router.patch("/deactivate/:userId",  deactivateUser);
 router.patch("/activate/:userId", activateUser);
+
+
+
+//Profiles 
+
+
+router.get("/profile/:id", getProfile);
+router.patch("/profile/:id", updateProfile);
+router.delete("/account/:id", deleteAccount);
+
+// router.get("/profile",  getProfile);
+// router.patch("/profile", updateProfile);
+// router.delete("/account", deleteAccount)
+
+
+
 //router.get("/me", requireAuth, me);
 
 // Password reset

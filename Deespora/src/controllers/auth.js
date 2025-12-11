@@ -8,8 +8,125 @@ const {sendSMS} = require("../utils/twilio")
 const dotenv = require("dotenv");
 const axios = require("axios");
 const mongoose = require("mongoose");
+const { OAuth2Client } = require('google-auth-library');
 
 dotenv.config();
+
+
+
+exports.googleSignIn = async (req, res) => {
+  try {
+    const { idToken, googleId, email, displayName, photoUrl } = req.body;
+
+    // Validation
+    if (!idToken || !googleId || !email) {
+      return error(res, "Missing required Google authentication data", 400);
+    }
+
+    // Verify the Google ID token
+    let googlePayload;
+    try {
+      const ticket = await client.verifyIdToken({
+        idToken: idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      googlePayload = ticket.getPayload();
+      
+      // Verify the email matches
+      if (googlePayload.email !== email || googlePayload.sub !== googleId) {
+        return error(res, "Invalid Google authentication", 401);
+      }
+    } catch (verifyError) {
+      console.error("Google token verification failed:", verifyError);
+      return error(res, "Invalid Google token", 401);
+    }
+
+    // Check if user exists with this email
+    let user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (user) {
+      // User exists - update Google info if not already set
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.photoUrl = photoUrl || user.photoUrl;
+        user.emailVerified = true; // Google emails are verified
+        await user.save();
+      }
+
+      // Check if account is active
+      if (!user.isActive) {
+        return error(res, "Your account has been deactivated. Please contact support.", 403);
+      }
+
+      // Generate token
+      const token = signJwt({ 
+        uid: String(user._id), 
+        email: user.email, 
+        role: user.role 
+      });
+
+      return success(res, "Login successful", {
+        token,
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          role: user.role,
+          phoneVerified: user.phoneVerified,
+          emailVerified: user.emailVerified,
+          photoUrl: user.photoUrl,
+        },
+      });
+
+    } else {
+      // User doesn't exist - create new account
+      const names = displayName ? displayName.split(' ') : ['User', ''];
+      const firstName = names[0] || 'User';
+      const lastName = names.slice(1).join(' ') || '';
+
+      const newUser = await User.create({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.toLowerCase().trim(),
+        googleId: googleId,
+        photoUrl: photoUrl || '',
+        role: "user",
+        phoneVerified: false,
+        emailVerified: true, // Google emails are verified
+        isActive: true,
+        // No password needed for Google sign-in users
+      });
+
+      // Generate token
+      const token = signJwt({ 
+        uid: String(newUser._id), 
+        email: newUser.email, 
+        role: newUser.role 
+      });
+
+      return success(res, "Account created successfully", {
+        token,
+        user: {
+          id: newUser._id,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          email: newUser.email,
+          phoneNumber: newUser.phoneNumber,
+          role: newUser.role,
+          phoneVerified: newUser.phoneVerified,
+          emailVerified: newUser.emailVerified,
+          photoUrl: newUser.photoUrl,
+        },
+      }, 201);
+    }
+  } catch (e) {
+    console.error("Google sign-in error:", e);
+    return error(res, "Google sign-in failed. Please try again.", 500);
+  }
+};
+
 
 
 
@@ -63,7 +180,10 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Create user
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Create user with OTP
     const user = await User.create({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -73,9 +193,23 @@ exports.register = async (req, res) => {
       role: "user", // Always default to user
       phoneVerified: false,
       emailVerified: false,
+      phoneOtp: otp,
+      phoneOtpExpires: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
 
-    return success(res, "Registration successful", {
+    // Send OTP via SMS
+    try {
+      await sendSMS({
+        to: phoneNumber,
+        message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
+      });
+    } catch (smsError) {
+      console.error("SMS sending error:", smsError);
+      // Note: User is already created, so we don't fail the registration
+      // They can request a new OTP later
+    }
+
+    return success(res, "Registration successful. Verification code sent to your phone.", {
       id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -103,6 +237,9 @@ exports.register = async (req, res) => {
 // ============================================
 // LOGIN
 // ============================================
+
+
+
 exports.login = async (req, res) => {
   try {
     const { email, phoneNumber, password } = req.body;
@@ -178,10 +315,11 @@ exports.login = async (req, res) => {
 };
 
 
-
 // ============================================
 // USER MANAGEMENT (Admin only)
 // ============================================
+
+
 exports.deactivateUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -685,6 +823,188 @@ exports.getUser = async (req, res) => {
   }
 };
 
+
+
+exports.getProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return error(res, "User ID is required", 400);
+    }
+    
+    const user = await User.findById(id)
+      .select('-passwordHash -resetPasswordTokenHash -emailOtp -phoneOtp');
+
+    if (!user) {
+      return error(res, "User not found", 404);
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      return error(res, "Account is deactivated", 403);
+    }
+
+    return success(res, "Profile retrieved successfully", {
+      id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      phoneVerified: user.phoneVerified,
+      emailVerified: user.emailVerified,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+  } catch (e) {
+    console.error("Get profile error:", e);
+    if (e.kind === 'ObjectId') {
+      return error(res, "Invalid user ID format", 400);
+    }
+    return error(res, "Failed to retrieve profile. Please try again.", 500);
+  }
+};
+
+
+
+
+
+/**
+ * Update User Profile
+ * PATCH /api/users/:id
+ * Requires authentication
+ */
+exports.updateProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { firstName, lastName, email, phoneNumber } = req.body;
+
+    // Validation - ID required
+    if (!id) {
+      return error(res, "User ID is required", 400);
+    }
+
+    // Validation - at least one field must be provided
+    if (!firstName && !lastName && !email && !phoneNumber) {
+      return error(res, "At least one field is required to update", 400);
+    }
+
+    // Find user
+    const user = await User.findById(id);
+    if (!user) {
+      return error(res, "User not found", 404);
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      return error(res, "Cannot update profile. Account is deactivated.", 403);
+    }
+
+    // Handle email change
+    if (email && email.toLowerCase().trim() !== user.email) {
+      const emailExists = await User.findOne({
+        email: email.toLowerCase().trim(),
+        _id: { $ne: id },
+      });
+
+      if (emailExists) {
+        return error(res, "Email is already in use", 409);
+      }
+
+      user.email = email.toLowerCase().trim();
+      user.emailVerified = false;
+    }
+
+    // Handle phone change
+    if (phoneNumber && phoneNumber.trim() !== user.phoneNumber) {
+      const phoneExists = await User.findOne({
+        phoneNumber: phoneNumber.trim(),
+        _id: { $ne: id },
+      });
+
+      if (phoneExists) {
+        return error(res, "Phone number is already in use", 409);
+      }
+
+      user.phoneNumber = phoneNumber.trim();
+      user.phoneVerified = false;
+    }
+
+    // Update other fields
+    if (firstName) user.firstName = firstName.trim();
+    if (lastName) user.lastName = lastName.trim();
+
+    await user.save();
+
+    return success(res, "Profile updated successfully", {
+      id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      phoneVerified: user.phoneVerified,
+      emailVerified: user.emailVerified,
+      isActive: user.isActive,
+      updatedAt: user.updatedAt,
+    });
+  } catch (e) {
+    console.error("Update profile error:", e);
+    if (e.kind === "ObjectId") {
+      return error(res, "Invalid user ID", 400);
+    }
+    return error(res, "Failed to update profile", 500);
+  }
+};
+
+
+/**
+ * Delete User Account
+ * DELETE /api/users/:id
+ * Requires authentication and password confirmation
+ */
+exports.deleteAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    // Validation
+    if (!id) {
+      return error(res, "User ID is required", 400);
+    }
+
+    if (!password) {
+      return error(res, "Password is required to delete account", 400);
+    }
+
+    // Find user
+    const user = await User.findById(id);
+    if (!user) {
+      return error(res, "User not found", 404);
+    }
+
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return error(res, "Invalid password. Account deletion cancelled.", 401);
+    }
+
+    // Permanently delete account
+    await User.findByIdAndDelete(id);
+
+    return success(res, "Account deleted successfully. We're sorry to see you go.", {
+      deletedAt: new Date(),
+    });
+  } catch (e) {
+    console.error("Delete account error:", e);
+    if (e.kind === "ObjectId") {
+      return error(res, "Invalid user ID", 400);
+    }
+    return error(res, "Failed to delete account", 500);
+  }
+};
 
 
 
