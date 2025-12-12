@@ -14,13 +14,16 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ["admin", "user"], default: "user" },  
     isActive: { type: Boolean, default: true }, 
 
+    // Password reset fields
     resetPasswordTokenHash: { type: String, default: null },
     resetPasswordExpiresAt: { type: Date, default: null },
+    resetPasswordMethod: { type: String, enum: ["custom_token", "twilio_verify"], default: null }, // ✅ ADD THIS
 
+    // Email OTP fields
     emailOtp: { type: String, default: null },
     emailOtpExpires: { type: Date, default: null },
 
-    // Add phone OTP fields
+    // Phone OTP fields
     phoneOtp: { type: String, default: null },
     phoneOtpExpires: { type: Date, default: null },
   },

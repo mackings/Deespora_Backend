@@ -4,7 +4,7 @@ const { success, error } = require("../utils/response");
 const { signJwt } = require("../utils/jwt");
 const { randomToken, hashToken, compareToken } = require("../utils/crypto");
 const { sendEmail } = require("../utils/sendEmail");
-const {sendSMS,sendVerificationSMS} = require("../utils/twilio")
+const {sendSMS,sendVerificationSMS,verifyTwilioCode} = require("../utils/twilio")
 const dotenv = require("dotenv");
 const axios = require("axios");
 const mongoose = require("mongoose");
@@ -383,7 +383,6 @@ exports.activateUser = async (req, res) => {
 // ============================================
 
 
-
 exports.requestPasswordReset = async (req, res) => {
   try {
     const { email, phoneNumber } = req.body;
@@ -407,38 +406,48 @@ exports.requestPasswordReset = async (req, res) => {
       resetMethod = "phone";
     }
 
-    // Log for debugging
     console.log('Reset request - Method:', resetMethod);
     console.log('User found:', !!user);
     console.log('User active:', user?.isActive);
 
     if (user && user.isActive) {
-      const token = Math.floor(100000 + Math.random() * 900000).toString();
-      user.resetPasswordTokenHash = await hashToken(token);
-      user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
-      await user.save();
-
       if (resetMethod === "email") {
+        // ✅ Email: Use your own token system
+        const token = Math.floor(100000 + Math.random() * 900000).toString();
+        user.resetPasswordTokenHash = await hashToken(token);
+        user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        user.resetPasswordMethod = 'custom_token'; // Mark as custom token
+        await user.save();
+
         await sendEmail({
           to: email,
           subject: "Password Reset Request",
           html: `
-            <p>You requested a password reset.</p>
-            <p>Your password reset code is:</p>
-            <h2>${token}</h2>
-            <p>This code will expire in 30 minutes.</p>
-            <p>If you didn't request this, please ignore this email.</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">Password Reset Request</h2>
+              <p>You requested a password reset.</p>
+              <p>Your password reset code is:</p>
+              <div style="background-color: #f5f5f5; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
+                <h1 style="color: #8B4513; margin: 0; font-size: 36px; letter-spacing: 5px;">${token}</h1>
+              </div>
+              <p>This code will expire in <strong>30 minutes</strong>.</p>
+              <p>If you didn't request this, please ignore this email.</p>
+            </div>
           `,
         });
-        console.log('✅ Email sent successfully');
+        console.log('✅ Email sent successfully to:', email);
       } else {
+        // ✅ Phone: Use Twilio Verify (Twilio generates the code)
         console.log('📱 Attempting SMS to:', phoneNumber);
         
-        // ONLY CHANGE: Use sendVerificationSMS instead of sendSMS
         await sendVerificationSMS({
-          to: phoneNumber,
-          code: token
+          to: phoneNumber
         });
+        
+        // ✅ Mark that this user is using Twilio Verify
+        user.resetPasswordMethod = 'twilio_verify';
+        user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        await user.save();
         
         console.log('✅ SMS sent successfully via Twilio Verify');
       }
@@ -458,9 +467,18 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
+
+
+
 exports.resetPassword = async (req, res) => {
   try {
     const { email, phoneNumber, token, password } = req.body;
+
+    console.log('📥 Reset password request received');
+    console.log('📧 Email:', email);
+    console.log('🔑 Token from request:', token);
+    console.log('🔑 Token type:', typeof token);
+    console.log('🔑 Token length:', token?.length);
 
     // Validation
     if (!token || !password) {
@@ -481,46 +499,99 @@ exports.resetPassword = async (req, res) => {
 
     let user;
 
-    // Find user by email or phone
     if (email) {
       user = await User.findOne({ email: email.toLowerCase().trim() });
+      console.log('🔍 User found:', !!user);
+      
+      if (user) {
+        console.log('📊 User details:');
+        console.log('   - ID:', user._id);
+        console.log('   - Reset method:', user.resetPasswordMethod);
+        console.log('   - Has token hash:', !!user.resetPasswordTokenHash);
+        console.log('   - Token hash:', user.resetPasswordTokenHash);
+        console.log('   - Expires at:', user.resetPasswordExpiresAt);
+        console.log('   - Now:', new Date());
+        console.log('   - Is expired:', user.resetPasswordExpiresAt < new Date());
+      }
     } else {
       user = await User.findOne({ phoneNumber: phoneNumber.trim() });
+      console.log('🔍 User found by phone:', !!user);
     }
 
-    if (!user || !user.resetPasswordTokenHash || !user.resetPasswordExpiresAt) {
-      return error(res, "Invalid or expired reset token", 400);
+    if (!user) {
+      console.log('❌ User not found');
+      return error(res, "User not found", 404);
     }
 
-    // Check if account is active
     if (!user.isActive) {
+      console.log('❌ User account inactive');
       return error(res, "Your account has been deactivated. Please contact support.", 403);
     }
 
     // Check expiration
-    if (user.resetPasswordExpiresAt < new Date()) {
+    if (!user.resetPasswordExpiresAt || user.resetPasswordExpiresAt < new Date()) {
+      console.log('⏰ Token expired or missing');
+      
       user.resetPasswordTokenHash = null;
       user.resetPasswordExpiresAt = null;
+      user.resetPasswordMethod = null;
       await user.save();
       return error(res, "Reset token has expired. Please request a new one.", 400);
     }
 
-    // Verify token
-    const isTokenValid = await compareToken(token, user.resetPasswordTokenHash);
-    if (!isTokenValid) {
-      return error(res, "Invalid reset token", 400);
+    // Verify based on method
+    if (phoneNumber && user.resetPasswordMethod === 'twilio_verify') {
+      console.log('🔐 Verifying via Twilio Verify...');
+      
+      const verificationResult = await verifyTwilioCode({
+        to: phoneNumber,
+        code: token
+      });
+
+      if (!verificationResult.success) {
+        return error(res, "Invalid or expired verification code", 400);
+      }
+      
+      console.log('✅ Twilio verification successful');
+    } else {
+      console.log('🔐 Verifying via compareToken...');
+      console.log('   Token from user:', token);
+      console.log('   Hash from DB:', user.resetPasswordTokenHash);
+      
+      if (!user.resetPasswordTokenHash) {
+        console.log('❌ No reset token hash found');
+        return error(res, "Invalid or expired reset token", 400);
+      }
+
+      // Test the comparison
+      console.log('🧪 Testing bcrypt comparison...');
+      const isTokenValid = await compareToken(token, user.resetPasswordTokenHash);
+      console.log('📊 Comparison result:', isTokenValid);
+      
+      if (!isTokenValid) {
+        console.log('❌ Token does not match');
+        console.log('💡 Debug: Try requesting a fresh password reset');
+        return error(res, "Invalid reset token", 400);
+      }
+      
+      console.log('✅ Token verification successful');
     }
 
-    // Update password
+    console.log('🔄 Updating password...');
+
     const salt = await bcrypt.genSalt(10);
     user.passwordHash = await bcrypt.hash(password, salt);
     user.resetPasswordTokenHash = null;
     user.resetPasswordExpiresAt = null;
+    user.resetPasswordMethod = null;
     await user.save();
+
+    console.log('✅ Password updated successfully');
 
     return success(res, "Password updated successfully");
   } catch (e) {
-    console.error("Password reset error:", e);
+    console.error("❌ Password reset error:", e);
+    console.error("Stack:", e.stack);
     return error(res, "Failed to reset password", 500);
   }
 };
