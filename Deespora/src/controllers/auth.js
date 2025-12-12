@@ -4,7 +4,7 @@ const { success, error } = require("../utils/response");
 const { signJwt } = require("../utils/jwt");
 const { randomToken, hashToken, compareToken } = require("../utils/crypto");
 const { sendEmail } = require("../utils/sendEmail");
-const {sendSMS} = require("../utils/twilio")
+const {sendSMS,sendVerificationSMS} = require("../utils/twilio")
 const dotenv = require("dotenv");
 const axios = require("axios");
 const mongoose = require("mongoose");
@@ -382,6 +382,8 @@ exports.activateUser = async (req, res) => {
 // PASSWORD RESET
 // ============================================
 
+
+
 exports.requestPasswordReset = async (req, res) => {
   try {
     const { email, phoneNumber } = req.body;
@@ -428,17 +430,20 @@ exports.requestPasswordReset = async (req, res) => {
             <p>If you didn't request this, please ignore this email.</p>
           `,
         });
-        console.log('Email sent successfully');
+        console.log('✅ Email sent successfully');
       } else {
-        console.log('Attempting SMS to:', phoneNumber);
-        await sendSMS({
+        console.log('📱 Attempting SMS to:', phoneNumber);
+        
+        // ONLY CHANGE: Use sendVerificationSMS instead of sendSMS
+        await sendVerificationSMS({
           to: phoneNumber,
-          message: `Your password reset code is: ${token}. This code will expire in 30 minutes. If you didn't request this, please ignore this message.`,
+          code: token
         });
-        console.log('SMS sent successfully');
+        
+        console.log('✅ SMS sent successfully via Twilio Verify');
       }
     } else {
-      console.log('User not found or inactive - no message sent');
+      console.log('⚠️ User not found or inactive - no message sent');
     }
 
     return success(
@@ -448,12 +453,10 @@ exports.requestPasswordReset = async (req, res) => {
         : "If the phone number exists, a reset code has been sent."
     );
   } catch (e) {
-    console.error("Password reset request error:", e);
+    console.error("❌ Password reset request error:", e);
     return error(res, "Failed to process password reset request", 500);
   }
 };
-
-
 
 exports.resetPassword = async (req, res) => {
   try {
@@ -521,6 +524,147 @@ exports.resetPassword = async (req, res) => {
     return error(res, "Failed to reset password", 500);
   }
 };
+
+
+// exports.requestPasswordReset = async (req, res) => {
+//   try {
+//     const { email, phoneNumber } = req.body;
+
+//     if (!email && !phoneNumber) {
+//       return error(res, "Email or phone number is required", 400);
+//     }
+
+//     if (email && phoneNumber) {
+//       return error(res, "Please provide either email or phone number, not both", 400);
+//     }
+
+//     let user;
+//     let resetMethod;
+
+//     if (email) {
+//       user = await User.findOne({ email: email.toLowerCase().trim() });
+//       resetMethod = "email";
+//     } else {
+//       user = await User.findOne({ phoneNumber: phoneNumber.trim() });
+//       resetMethod = "phone";
+//     }
+
+//     // Log for debugging
+//     console.log('Reset request - Method:', resetMethod);
+//     console.log('User found:', !!user);
+//     console.log('User active:', user?.isActive);
+
+//     if (user && user.isActive) {
+//       const token = Math.floor(100000 + Math.random() * 900000).toString();
+//       user.resetPasswordTokenHash = await hashToken(token);
+//       user.resetPasswordExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+//       await user.save();
+
+//       if (resetMethod === "email") {
+//         await sendEmail({
+//           to: email,
+//           subject: "Password Reset Request",
+//           html: `
+//             <p>You requested a password reset.</p>
+//             <p>Your password reset code is:</p>
+//             <h2>${token}</h2>
+//             <p>This code will expire in 30 minutes.</p>
+//             <p>If you didn't request this, please ignore this email.</p>
+//           `,
+//         });
+//         console.log('Email sent successfully');
+//       } else {
+//         console.log('Attempting SMS to:', phoneNumber);
+//         await sendSMS({
+//           to: phoneNumber,
+//           message: `Your password reset code is: ${token}. This code will expire in 30 minutes. If you didn't request this, please ignore this message.`,
+//         });
+//         console.log('SMS sent successfully');
+//       }
+//     } else {
+//       console.log('User not found or inactive - no message sent');
+//     }
+
+//     return success(
+//       res,
+//       resetMethod === "email"
+//         ? "If the email exists, a reset code has been sent."
+//         : "If the phone number exists, a reset code has been sent."
+//     );
+//   } catch (e) {
+//     console.error("Password reset request error:", e);
+//     return error(res, "Failed to process password reset request", 500);
+//   }
+// };
+
+
+
+// exports.resetPassword = async (req, res) => {
+//   try {
+//     const { email, phoneNumber, token, password } = req.body;
+
+//     // Validation
+//     if (!token || !password) {
+//       return error(res, "Token and new password are required", 400);
+//     }
+
+//     if (!email && !phoneNumber) {
+//       return error(res, "Email or phone number is required", 400);
+//     }
+
+//     if (email && phoneNumber) {
+//       return error(res, "Please provide either email or phone number, not both", 400);
+//     }
+
+//     if (password.length < 8) {
+//       return error(res, "Password must be at least 8 characters long", 400);
+//     }
+
+//     let user;
+
+//     // Find user by email or phone
+//     if (email) {
+//       user = await User.findOne({ email: email.toLowerCase().trim() });
+//     } else {
+//       user = await User.findOne({ phoneNumber: phoneNumber.trim() });
+//     }
+
+//     if (!user || !user.resetPasswordTokenHash || !user.resetPasswordExpiresAt) {
+//       return error(res, "Invalid or expired reset token", 400);
+//     }
+
+//     // Check if account is active
+//     if (!user.isActive) {
+//       return error(res, "Your account has been deactivated. Please contact support.", 403);
+//     }
+
+//     // Check expiration
+//     if (user.resetPasswordExpiresAt < new Date()) {
+//       user.resetPasswordTokenHash = null;
+//       user.resetPasswordExpiresAt = null;
+//       await user.save();
+//       return error(res, "Reset token has expired. Please request a new one.", 400);
+//     }
+
+//     // Verify token
+//     const isTokenValid = await compareToken(token, user.resetPasswordTokenHash);
+//     if (!isTokenValid) {
+//       return error(res, "Invalid reset token", 400);
+//     }
+
+//     // Update password
+//     const salt = await bcrypt.genSalt(10);
+//     user.passwordHash = await bcrypt.hash(password, salt);
+//     user.resetPasswordTokenHash = null;
+//     user.resetPasswordExpiresAt = null;
+//     await user.save();
+
+//     return success(res, "Password updated successfully");
+//   } catch (e) {
+//     console.error("Password reset error:", e);
+//     return error(res, "Failed to reset password", 500);
+//   }
+// };
 
 
 // ============================================
