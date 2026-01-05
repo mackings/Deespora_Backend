@@ -20,17 +20,19 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
   "https://deespora.netlify.app",
-  "https://deesporabackend.vercel.app/listings",
+  "http://admin.deespora.com",
+  "https://admin.deespora.com",
   process.env.CLIENT_URL
 ].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes('*')) {
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.log('CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
