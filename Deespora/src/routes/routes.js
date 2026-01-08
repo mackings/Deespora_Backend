@@ -25,7 +25,7 @@ const {
   deleteAccount
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants, getNearbyRestaurants } = require("../controllers/restaurants.js");
-const { getRealEstateCompanies, getAfricanChurches } = require("../controllers/realestate.js");
+const { getAfricanChurches } = require("../controllers/worship.js");
 const { getCateringCompanies } = require("../controllers/catering.js");
 const { createCategory, getCategories, getCategoryById, updateCategory, deleteCategory, createListing, promoteListing,getListings,getListingById ,updateListing,deleteListing} = require("../controllers/Listings.js");
 
@@ -114,4 +114,3 @@ router.post("/listings/:listingId/promote", promoteListing);
 module.exports = router;
 
 /////
-

@@ -1,37 +1,9 @@
 const axios = require("axios");
 const { success, error } = require("../utils/response");
 const cron = require("node-cron");
-const path = require("path");
-const fs = require("fs");
+const { readCache, writeCache } = require("../utils/RestCache");
 
-
-
-
-// Cache Helpers
-// =======================
-const CACHE_FILE = path.join(__dirname, "../cache/african_churches.json");
-
-function readCache() {
-  try {
-    if (!fs.existsSync(CACHE_FILE)) return null;
-    const raw = fs.readFileSync(CACHE_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : null;
-  } catch (err) {
-    console.error("⚠️ Error reading cache:", err.message);
-    return null;
-  }
-}
-
-function writeCache(data) {
-  try {
-    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2));
-    console.log(`💾 Cache updated: ${CACHE_FILE}`);
-  } catch (err) {
-    console.error("⚠️ Error writing cache:", err.message);
-  }
-}
+const CACHE_NAME = "worship";
 
 // =======================
 // Fetch Reviews for a Place
@@ -67,11 +39,18 @@ async function fetchAndCacheAfricanChurches() {
   const usCities = [
     "New York", "Los Angeles", "Chicago", "Houston", "Atlanta", "Washington DC",
     "Dallas", "Seattle", "San Francisco", "Minneapolis", "Philadelphia",
-    "Boston", "Miami", "Denver", "Phoenix", "Las Vegas"
+    "Boston", "Miami", "Denver", "Phoenix", "Las Vegas",
+    "San Diego", "Orlando", "Baltimore", "Charlotte", "Austin",
+    "Detroit", "Newark", "St. Louis", "Tampa", "Raleigh"
   ];
 
   // Major African Pentecostal/Charismatic Churches
   const africanChurches = [
+    "African church",
+    "African worship",
+    "African worship center",
+    "African christian church",
+    "African Pentecostal church",
     "Redeemed Christian Church of God RCCG",
     "Mountain of Fire and Miracles Ministries MFM",
     "Living Faith Church Winners Chapel",
@@ -86,15 +65,15 @@ async function fetchAndCacheAfricanChurches() {
     "Dunamis International Gospel Centre",
     "The Elevation Church",
     "Citadel Global Community Church",
-    "african pentecostal church",
-    "nigerian church",
-    "ghanaian church",
-    "african worship center",
-    "african christian church",
+    "Nigerian church",
+    "Ghanaian church",
+    "Congolese church",
+    "Eritrean church",
+    "Ethiopian church",
   ];
 
   const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
-  let allResults = [];
+  const resultMap = new Map();
 
   for (const city of usCities) {
     for (const churchName of africanChurches) {
@@ -121,7 +100,7 @@ async function fetchAndCacheAfricanChurches() {
               r.city = city;
               r.searchTerm = churchName;
             });
-            allResults.push(...response.data.results);
+            response.data.results.forEach((r) => resultMap.set(r.place_id, r));
           }
 
           nextPageToken = response.data.next_page_token;
@@ -130,16 +109,13 @@ async function fetchAndCacheAfricanChurches() {
           console.error(`❌ [TextSearch] Failed in ${city}:`, err.message);
           break;
         }
-      } while (nextPageToken && allResults.length < 2000);
+      } while (nextPageToken && resultMap.size < 4000);
     }
   }
 
-  console.log(`🧩 Total raw results: ${allResults.length}`);
+  console.log(`🧩 Total raw results: ${resultMap.size}`);
 
-  // Filter duplicates by place_id
-  const uniqueResults = [
-    ...new Map(allResults.map((item) => [item.place_id, item])).values(),
-  ];
+  const uniqueResults = Array.from(resultMap.values());
 
   // Fetch reviews in small batches
   console.log(`🌟 Fetching reviews for ${uniqueResults.length} churches...`);
@@ -158,7 +134,7 @@ async function fetchAndCacheAfricanChurches() {
   }
 
   console.log(`💾 Caching ${withReviews.length} African churches`);
-  writeCache(withReviews);
+  writeCache(withReviews, CACHE_NAME);
 
   return withReviews;
 }
@@ -168,7 +144,7 @@ async function fetchAndCacheAfricanChurches() {
 // =======================
 exports.getAfricanChurches = async (req, res) => {
   try {
-    const cachedData = readCache();
+    const cachedData = readCache(CACHE_NAME);
     if (cachedData && cachedData.length > 0) {
       console.log("📌 Returning cached African churches");
       return success(res, "African churches (from cache)", cachedData);

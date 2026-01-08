@@ -1,24 +1,11 @@
 const axios = require("axios");
 const { success, error } = require("../utils/response");
-const { readCache, writeCache } = require('../utils/RestCache');
 const cron = require("node-cron");
 
 
 
-const CACHE_FILE = "events";         // separate cache for events
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
 // 🔥 Fetch Ticketmaster African events
 async function fetchAndCacheEvents() {
-  const now = Date.now();
-  const cached = readCache(CACHE_FILE);
-
-  // ✅ Return cache if fresh
-  if (cached?._timestamp && now - cached._timestamp < CACHE_TTL) {
-    console.log("📂 Returning events from cache");
-    return cached.data;
-  }
-
   const url = "https://app.ticketmaster.com/discovery/v2/events.json";
   const formatDateForTM = (date = new Date()) =>
     date.toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -117,8 +104,6 @@ async function fetchAndCacheEvents() {
     _embedded: { venues: e._embedded?.venues || e.venues || [] }
   }));
 
-  // ✅ Save to separate events cache
-  writeCache({ data: apiEvents, _timestamp: now }, CACHE_FILE);
   return apiEvents;
 }
 
@@ -141,16 +126,7 @@ exports.getEvents = async (req, res) => {
   }
 };
 
-// 🕒 Auto-refresh events cache every 24 hours
-cron.schedule("0 0 * * *", async () => {
-  console.log("⏰ Running daily cache refresh for African events...");
-  try {
-    await fetchAndCacheEvents();
-    console.log("✅ Events cache refreshed");
-  } catch (err) {
-    console.error("❌ Failed to refresh events cache:", err);
-  }
-});
+// 🕒 Auto-refresh disabled (events always fetched live)
 
 
 
@@ -202,5 +178,4 @@ exports.searchEvent = async (req, res) => {
     return error(res, "Failed to search events", 500, err.message);
   }
 };
-
 
