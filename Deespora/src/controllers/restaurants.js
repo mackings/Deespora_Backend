@@ -3,6 +3,10 @@ const {success,error} = require("../utils/response")
 const { readCache, writeCache } = require('../utils/RestCache');
 const cron = require("node-cron");
 
+const CACHE_NAME = "restaurants";
+
+const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
+const RADIUS_TIERS_MINUTES = [5, 30, 60];
 
 
 cron.schedule("59 23 28-31 * *", async () => {
@@ -45,6 +49,21 @@ async function fetchReviews(placeId) {
   }
 }
 
+function haversineDistanceKm(a, b) {
+  const toRad = (val) => (val * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  return R * c;
+}
+
 // 🔎 Resolve a city name to lat/lng
 async function getCityCoordinates(city) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json`;
@@ -72,6 +91,45 @@ async function getCityCoordinates(city) {
   }
 }
 
+async function fetchRestaurantsNearLocation({ lat, lng, keyword }) {
+  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+  let allResults = [];
+  let nextPageToken = null;
+
+  do {
+    try {
+      const response = await axios.get(url, {
+        params: {
+          key: process.env.GOOGLE_PLACES_API_KEY,
+          location: `${lat},${lng}`,
+          radius: 50000,
+          type: "restaurant",
+          keyword,
+          pagetoken: nextPageToken,
+        },
+      });
+
+      if (response.data.status !== "OK") {
+        console.error(`⚠️ [Nearby Search] status=${response.data.status}`, response.data.error_message);
+      }
+
+      if (response.data.results?.length) {
+        allResults.push(...response.data.results);
+      }
+
+      nextPageToken = response.data.next_page_token;
+      if (nextPageToken) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (err) {
+      console.error(`❌ [Nearby Search] Failed for keyword "${keyword}":`, err.response?.data || err.message);
+      break;
+    }
+  } while (nextPageToken && allResults.length < 200);
+
+  return allResults;
+}
+
 // =======================
 // Fetch & cache restaurants
 // =======================
@@ -95,62 +153,78 @@ async function fetchAndCacheRestaurants() {
     { name: "Denver", lat: 39.7392, lng: -104.9903 },
     { name: "Phoenix", lat: 33.4484, lng: -112.0740 },
     { name: "Las Vegas", lat: 36.1699, lng: -115.1398 },
+    { name: "San Diego", lat: 32.7157, lng: -117.1611 },
+    { name: "Orlando", lat: 28.5383, lng: -81.3792 },
+    { name: "Baltimore", lat: 39.2904, lng: -76.6122 },
+    { name: "Charlotte", lat: 35.2271, lng: -80.8431 },
+    { name: "Austin", lat: 30.2672, lng: -97.7431 },
+    { name: "Detroit", lat: 42.3314, lng: -83.0458 },
+    { name: "Newark", lat: 40.7357, lng: -74.1724 },
+    { name: "St. Louis", lat: 38.6270, lng: -90.1994 },
+    { name: "Tampa", lat: 27.9506, lng: -82.4572 },
+    { name: "Raleigh", lat: 35.7796, lng: -78.6382 },
   ];
 
-  const africanKeywords = [
-    "african", "nigerian", "ethiopian", "ghanaian", "senegalese",
-    "somali", "cameroonian", "egyptian", "north african", "sudanese",
-    "afro fusion", "afro-caribbean",
+  const searchKeywords = [
+    "African",
+    "African restaurant",
+    "African cuisine",
+    "Nigerian restaurant",
+    "Ethiopian restaurant",
+    "Ghanaian restaurant",
+    "Senegalese restaurant",
+    "Somali restaurant",
+    "North African restaurant",
+    "Afro fusion restaurant",
+    "Afro-caribbean restaurant",
   ];
 
   const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
-  let allResults = [];
+  const resultMap = new Map();
 
   for (const city of usCities) {
     console.log(`📍 Searching restaurants in ${city.name}...`);
-    let nextPageToken = null;
+    for (const keyword of searchKeywords) {
+      let nextPageToken = null;
 
-    do {
-      try {
-        const response = await axios.get(url, {
-          params: {
-            key: process.env.GOOGLE_PLACES_API_KEY,
-            location: `${city.lat},${city.lng}`,
-            radius: 10000,
-            type: "restaurant",
-            keyword: "african restaurant",
-            pagetoken: nextPageToken,
-          },
-        });
+      do {
+        try {
+          const response = await axios.get(url, {
+            params: {
+              key: process.env.GOOGLE_PLACES_API_KEY,
+              location: `${city.lat},${city.lng}`,
+              radius: 15000,
+              type: "restaurant",
+              keyword,
+              pagetoken: nextPageToken,
+            },
+          });
 
-        if (response.data.status !== "OK") {
-          console.error(`⚠️ [Nearby Search] city=${city.name} status=${response.data.status}`, response.data.error_message);
+          if (response.data.status !== "OK") {
+            console.error(`⚠️ [Nearby Search] city=${city.name} status=${response.data.status}`, response.data.error_message);
+          }
+
+          if (response.data.results?.length) {
+            response.data.results.forEach((r) => {
+              r.city = city.name;
+              resultMap.set(r.place_id, r);
+            });
+          }
+
+          nextPageToken = response.data.next_page_token;
+          if (nextPageToken) {
+            console.log(`⏳ Waiting for next page in ${city.name}...`);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        } catch (err) {
+          console.error(`❌ [Nearby Search] Failed in ${city.name}:`, err.response?.data || err.message);
+          break;
         }
-
-        if (response.data.results?.length) {
-          response.data.results.forEach(r => (r.city = city.name));
-          allResults.push(...response.data.results);
-        }
-
-        nextPageToken = response.data.next_page_token;
-        if (nextPageToken) {
-          console.log(`⏳ Waiting for next page in ${city.name}...`);
-          await new Promise(r => setTimeout(r, 2000));
-        }
-      } catch (err) {
-        console.error(`❌ [Nearby Search] Failed in ${city.name}:`, err.response?.data || err.message);
-        break;
-      }
-    } while (nextPageToken && allResults.length < 2000);
+      } while (nextPageToken && resultMap.size < 4000);
+    }
   }
 
-  const filteredResults = allResults.filter(place =>
-    africanKeywords.some(k =>
-      `${place.name} ${place.vicinity || ""}`.toLowerCase().includes(k)
-    )
-  );
-
-  const limitedResults = filteredResults.slice(0, 1000);
+  const limitedResults = Array.from(resultMap.values()).slice(0, 3000);
 
   console.log(`🌟 Fetching reviews for ${limitedResults.length} restaurants...`);
 
@@ -169,7 +243,7 @@ async function fetchAndCacheRestaurants() {
   }
 
   console.log(`💾 Caching ${withReviews.length} restaurants with reviews`);
-  writeCache(withReviews);
+  writeCache(withReviews, CACHE_NAME);
 
   return withReviews;
 }
@@ -177,7 +251,7 @@ async function fetchAndCacheRestaurants() {
 // ✅ API Handler
 exports.getRestaurants = async (req, res) => {
   try {
-    const cachedData = readCache();
+    const cachedData = readCache(CACHE_NAME);
     if (cachedData && cachedData.length > 0) {
       console.log("📌 Returning cached restaurants with reviews");
       return success(res, "African restaurants across the US (from cache)", cachedData);
@@ -201,6 +275,100 @@ cron.schedule("0 0 * * *", async () => {
     console.error("❌ Failed to refresh cache:", err.response?.data || err.message);
   }
 });
+
+// --------------------------------------------------
+// NEARBY restaurants by user location (cache-first)
+// --------------------------------------------------
+exports.getNearbyRestaurants = async (req, res) => {
+  try {
+    const { lat, lng, city } = req.query;
+
+    let coords;
+    if (lat && lng) {
+      coords = { lat: Number(lat), lng: Number(lng) };
+    } else if (city) {
+      coords = await getCityCoordinates(city);
+    } else {
+      return error(res, "lat/lng or city is required", 400);
+    }
+
+    if (Number.isNaN(coords.lat) || Number.isNaN(coords.lng)) {
+      return error(res, "Invalid coordinates", 400);
+    }
+
+    const cachedData = readCache(CACHE_NAME) || [];
+    const withDistance = cachedData
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const maxRadiusKm = RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1] * DRIVE_SPEED_KM_PER_MIN;
+    const withinMaxRadius = withDistance.filter((place) => place.distanceKm <= maxRadiusKm);
+    if (withinMaxRadius.length > 0) {
+      return success(res, "Nearby African restaurants (from cache)", {
+        source: "cache",
+        radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
+        count: withinMaxRadius.length,
+        restaurants: withinMaxRadius,
+      });
+    }
+
+    const keywords = [
+      "African",
+      "African restaurant",
+      "African cuisine",
+      "Nigerian restaurant",
+      "Ethiopian restaurant",
+      "Ghanaian restaurant",
+      "Senegalese restaurant",
+      "Somali restaurant",
+      "North African restaurant",
+      "Afro-caribbean restaurant",
+    ];
+
+    const fetched = [];
+    for (const keyword of keywords) {
+      const results = await fetchRestaurantsNearLocation({
+        lat: coords.lat,
+        lng: coords.lng,
+        keyword,
+      });
+      fetched.push(...results);
+    }
+
+    const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values());
+    const toCache = [...cachedData, ...deduped];
+    writeCache(toCache, CACHE_NAME);
+
+    const enriched = deduped.map((place) => {
+      const placeCoords = {
+        lat: place.geometry.location.lat,
+        lng: place.geometry.location.lng,
+      };
+      const distanceKm = haversineDistanceKm(coords, placeCoords);
+      const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+      return { ...place, distanceKm, distanceMinutes };
+    }).sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return success(res, "Nearby African restaurants (fresh + cached)", {
+      source: "google",
+      radiusMinutes: 60,
+      count: enriched.length,
+      restaurants: enriched,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching nearby restaurants:", err.response?.data || err.message);
+    return error(res, "Failed to fetch nearby restaurants", 500, err.message);
+  }
+};
 
 
 

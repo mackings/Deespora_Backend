@@ -4,7 +4,7 @@ const path = require('path');
 
 
 function getCachePath(name) {
-  return path.join(__dirname, `${name}Cache.json`);
+  return path.join(__dirname, "../cache", `${name}Cache.json`);
 }
 
 function readCache(name) {
@@ -23,6 +23,7 @@ function readCache(name) {
 function writeCache(data, name) {
   const CACHE_FILE = getCachePath(name);
   try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify(data), 'utf-8');
   } catch (err) {
     console.error(`❌ Error writing cache "${name}"`, err);

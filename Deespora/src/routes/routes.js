@@ -24,7 +24,7 @@ const {
   updateProfile,
   deleteAccount
 } = require("../controllers/auth.js");
-const { getRestaurants, searchRestaurants } = require("../controllers/restaurants.js");
+const { getRestaurants, searchRestaurants, getNearbyRestaurants } = require("../controllers/restaurants.js");
 const { getRealEstateCompanies, getAfricanChurches } = require("../controllers/realestate.js");
 const { getCateringCompanies } = require("../controllers/catering.js");
 const { createCategory, getCategories, getCategoryById, updateCategory, deleteCategory, createListing, promoteListing,getListings,getListingById ,updateListing,deleteListing} = require("../controllers/Listings.js");
@@ -76,6 +76,7 @@ router.post("/search-events", searchEvent);
 //Restaurants
 
 router.get("/restaurants", getRestaurants);
+router.get("/restaurants/nearby", getNearbyRestaurants);
 router.get("/search-restaurants", searchRestaurants);
 
 //RealEstate
@@ -113,5 +114,4 @@ router.post("/listings/:listingId/promote", promoteListing);
 module.exports = router;
 
 /////
-
 
