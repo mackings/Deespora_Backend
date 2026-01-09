@@ -25,8 +25,8 @@ const {
   deleteAccount
 } = require("../controllers/auth.js");
 const { getRestaurants, searchRestaurants, getNearbyRestaurants } = require("../controllers/restaurants.js");
-const { getAfricanChurches } = require("../controllers/worship.js");
-const { getCateringCompanies } = require("../controllers/catering.js");
+const { getAfricanChurches, searchWorship } = require("../controllers/worship.js");
+const { getCateringCompanies, searchCatering } = require("../controllers/catering.js");
 const { createCategory, getCategories, getCategoryById, updateCategory, deleteCategory, createListing, promoteListing,getListings,getListingById ,updateListing,deleteListing} = require("../controllers/Listings.js");
 
 
@@ -79,12 +79,17 @@ router.get("/restaurants", getRestaurants);
 router.get("/restaurants/nearby", getNearbyRestaurants);
 router.get("/search-restaurants", searchRestaurants);
 
-//RealEstate
-router.get("/realestate", getAfricanChurches);
+
+router.get("/worship", getAfricanChurches);
 
 
 //Catering
 router.get("/catering", getCateringCompanies);
+router.get("/search-catering", searchCatering);
+
+//Worship
+router.get("/worship", getAfricanChurches);
+router.get("/search-worship", searchWorship);
 
 
 //Users

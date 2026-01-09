@@ -1,0 +1,105 @@
+{
+  "title": "Deespora API - Listings + Discovery",
+  "version": "1.0.0",
+  "baseUrl": "https://your-domain.com",
+  "endpoints": [
+    {
+      "name": "Get Restaurants (cached, expanded)",
+      "method": "GET",
+      "path": "/restaurants",
+      "description": "Fetch African restaurants across the US. Uses cache when available, otherwise fetches from Google and caches results.",
+      "query": [],
+      "body": null
+    },
+    {
+      "name": "Search Restaurants",
+      "method": "GET",
+      "path": "/search-restaurants",
+      "description": "Search restaurants by keyword and city using Google Places, with reviews included for top results.",
+      "query": [
+        { "name": "city", "type": "string", "required": true, "example": "New York" },
+        { "name": "keyword", "type": "string", "required": true, "example": "African restaurant" }
+      ],
+      "body": null
+    },
+    {
+      "name": "Nearby Restaurants (cache-first)",
+      "method": "GET",
+      "path": "/restaurants/nearby",
+      "description": "Find nearby African restaurants using cache-first distance matching (5/30/60 min tiers). If none in cache, fetches from Google and caches.",
+      "query": [
+        { "name": "lat", "type": "number", "required": false, "example": 40.7128 },
+        { "name": "lng", "type": "number", "required": false, "example": -74.006 },
+        { "name": "city", "type": "string", "required": false, "example": "New York" }
+      ],
+      "body": null,
+      "notes": [
+        "Either lat+lng or city is required.",
+        "Results include distanceKm and distanceMinutes."
+      ]
+    },
+    {
+      "name": "Get Events (live)",
+      "method": "GET",
+      "path": "/all-events",
+      "description": "Fetch African events from Ticketmaster live (no cache).",
+      "query": [],
+      "body": null
+    },
+    {
+      "name": "Search Events",
+      "method": "POST",
+      "path": "/search-events",
+      "description": "Search events via Ticketmaster with flexible filters.",
+      "query": [],
+      "body": {
+        "required": ["keyword"],
+        "example": {
+          "keyword": "afrobeat",
+          "size": 50,
+          "city": "New York",
+          "countryCode": "US",
+          "startDateTime": "2025-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "name": "Get Worship (cached, expanded)",
+      "method": "GET",
+      "path": "/realestate",
+      "description": "Fetch African worship/church listings across the US. Uses cache when available, otherwise fetches from Google and caches results.",
+      "query": [],
+      "body": null
+    },
+    {
+      "name": "Search Worship",
+      "method": "GET",
+      "path": "/search-worship",
+      "description": "Search worship/church listings by keyword and city using Google Places, with reviews included for top results.",
+      "query": [
+        { "name": "city", "type": "string", "required": true, "example": "Atlanta" },
+        { "name": "keyword", "type": "string", "required": true, "example": "African church" }
+      ],
+      "body": null
+    },
+    {
+      "name": "Get Catering (cached, expanded)",
+      "method": "GET",
+      "path": "/catering",
+      "description": "Fetch African catering companies across the US. Uses cache when available, otherwise fetches from Google and caches results.",
+      "query": [],
+      "body": null
+    },
+    {
+      "name": "Search Catering",
+      "method": "GET",
+      "path": "/search-catering",
+      "description": "Search catering by keyword and city using Google Places, with reviews included for top results.",
+      "query": [
+        { "name": "city", "type": "string", "required": true, "example": "Houston" },
+        { "name": "keyword", "type": "string", "required": true, "example": "African catering" }
+      ],
+      "body": null
+    }
+  ]
+}

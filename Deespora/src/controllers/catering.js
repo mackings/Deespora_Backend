@@ -165,3 +165,65 @@ cron.schedule("59 23 28-31 * *", async () => {
     }
   }
 });
+
+// --------------------------------------------------
+// SEARCH catering by keyword & city + reviews
+// --------------------------------------------------
+exports.searchCatering = async (req, res) => {
+  try {
+    const { city, keyword } = req.query;
+    if (!keyword) return error(res, "Keyword is required", 400);
+    if (!city) return error(res, "City is required", 400);
+
+    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json`;
+    const geoRes = await axios.get(geoUrl, {
+      params: { address: city, key: process.env.GOOGLE_PLACES_API_KEY },
+    });
+    if (!geoRes.data.results?.length) return error(res, `City "${city}" not found`, 404);
+
+    const { lat, lng } = geoRes.data.results[0].geometry.location;
+
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+    const allResults = [];
+    let nextPageToken = null;
+
+    do {
+      const response = await axios.get(url, {
+        params: {
+          key: process.env.GOOGLE_PLACES_API_KEY,
+          query: `${keyword} in ${city}`,
+          location: `${lat},${lng}`,
+          radius: 5000,
+          pagetoken: nextPageToken,
+        },
+      });
+
+      if (response.data.results?.length) {
+        allResults.push(...response.data.results);
+      }
+
+      nextPageToken = response.data.next_page_token;
+      if (nextPageToken) await new Promise((r) => setTimeout(r, 2000));
+    } while (nextPageToken && allResults.length < 100);
+
+    const limitedResults = allResults.slice(0, 20);
+
+    const withReviews = await Promise.all(
+      limitedResults.slice(0, 10).map(async (place) => {
+        const reviews = await fetchReviews(place.place_id);
+        return {
+          ...place,
+          reviews: reviews.slice(0, 3),
+        };
+      })
+    );
+
+    return success(res, `Search results for "${keyword}" in ${city}`, {
+      count: withReviews.length,
+      catering: withReviews,
+    });
+  } catch (err) {
+    console.error("❌ Error searching catering:", err.response?.data || err.message);
+    return error(res, "Failed to search catering", 500, err.message);
+  }
+};
