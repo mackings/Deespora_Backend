@@ -1,16 +1,19 @@
 
 require("dotenv").config();
 const express = require("express");
+const compression = require("compression");
 const morgan = require("morgan");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
+const { preloadCaches } = require("./src/utils/RestCache");
 
 require("./src/utils/db.js");
 const routes = require("./src/routes/routes.js");
 
 dotenv.config();
 const app = express();
+preloadCaches();
 
 // CORS Configuration
 const allowedOrigins = [
@@ -42,6 +45,7 @@ app.use(cors({
 }));
 
 // Body parser middleware - ADD THIS
+app.use(compression());
 app.use(express.json({ limit: '10mb' })); // For JSON payloads
 app.use(express.urlencoded({ extended: true, limit: '10mb' })); // For URL-encoded form data
 app.use(cookieParser());
