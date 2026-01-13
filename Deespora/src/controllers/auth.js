@@ -12,8 +12,6 @@ const { OAuth2Client } = require('google-auth-library');
 
 dotenv.config();
 
-
-
 exports.googleSignIn = async (req, res) => {
   try {
     const { idToken, googleId, email, displayName, photoUrl } = req.body;
@@ -180,10 +178,10 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Legacy local OTP generation (kept for reference)
+    // const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Create user with OTP
+    // Create user (legacy OTP fields commented for reference)
     const user = await User.create({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -193,16 +191,19 @@ exports.register = async (req, res) => {
       role: "user", // Always default to user
       phoneVerified: false,
       emailVerified: false,
-      phoneOtp: otp,
-      phoneOtpExpires: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+      // phoneOtp: otp,
+      // phoneOtpExpires: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
 
-    // Send OTP via SMS
+    // Legacy SMS with local OTP (kept for reference)
+    // await sendSMS({
+    //   to: phoneNumber,
+    //   message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
+    // });
+
+    // Send OTP via Twilio Verify
     try {
-      await sendSMS({
-        to: phoneNumber,
-        message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
-      });
+      await sendVerificationSMS({ to: phoneNumber });
     } catch (smsError) {
       console.error("SMS sending error:", smsError);
       // Note: User is already created, so we don't fail the registration
@@ -719,16 +720,18 @@ exports.sendPhoneOtp = async (req, res) => {
       return error(res, "Phone number is already verified", 400);
     }
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.phoneOtp = otp;
-    user.phoneOtpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
-    await user.save();
+    // Legacy local OTP generation/storage (kept for reference)
+    // const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // user.phoneOtp = otp;
+    // user.phoneOtpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    // await user.save();
+    //
+    // await sendSMS({
+    //   to: phoneNumber,
+    //   message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
+    // });
 
-    await sendSMS({
-      to: phoneNumber,
-      message: `Your verification code is: ${otp}. This code will expire in 5 minutes.`
-    });
+    await sendVerificationSMS({ to: phoneNumber });
 
     return success(res, "Verification code sent to phone");
   } catch (err) {
@@ -759,19 +762,33 @@ exports.verifyPhoneOtp = async (req, res) => {
       return error(res, "Phone number is already verified", 400);
     }
 
-    if (!user.phoneOtp || !user.phoneOtpExpires) {
-      return error(res, "No verification code found. Please request a new one.", 400);
-    }
+    
+    // Legacy local OTP checks (kept for reference)
+    // if (!user.phoneOtp || !user.phoneOtpExpires) {
+    //   return error(res, "No verification code found. Please request a new one.", 400);
+    // }
+    //
+    // if (user.phoneOtpExpires < new Date()) {
+    //   user.phoneOtp = null;
+    //   user.phoneOtpExpires = null;
+    //   await user.save();
+    //   return error(res, "Verification code has expired. Please request a new one.", 400);
+    // }
+    //
+    // if (user.phoneOtp !== code.trim()) {
+    //   return error(res, "Invalid verification code", 401);
+    // }
 
-    if (user.phoneOtpExpires < new Date()) {
-      user.phoneOtp = null;
-      user.phoneOtpExpires = null;
-      await user.save();
-      return error(res, "Verification code has expired. Please request a new one.", 400);
-    }
 
-    if (user.phoneOtp !== code.trim()) {
-      return error(res, "Invalid verification code", 401);
+
+
+    const verificationResult = await verifyTwilioCode({
+      to: phoneNumber,
+      code: code.trim()
+    });
+
+    if (!verificationResult.success) {
+      return error(res, "Invalid or expired verification code", 401);
     }
 
     // Mark phone as verified
@@ -1085,6 +1102,3 @@ exports.deleteAccount = async (req, res) => {
     return error(res, "Failed to delete account", 500);
   }
 };
-
-
-

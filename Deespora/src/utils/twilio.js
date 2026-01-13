@@ -4,17 +4,23 @@ const twilio = require('twilio');
 const accountSid = process.env.TWILIO_ACCOUNT_SID
 const authToken = process.env.TWILIO_AUTH_TOKEN
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER
+const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID
 const VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID; 
 
 const client = twilio(accountSid, authToken);
 
 exports.sendSMS = async ({ to, message }) => {
   try {
-    const result = await client.messages.create({
+    const payload = {
       body: message,
-      from: twilioPhoneNumber,
       to: to
-    });
+    };
+    if (messagingServiceSid) {
+      payload.messagingServiceSid = messagingServiceSid;
+    } else {
+      payload.from = twilioPhoneNumber;
+    }
+    const result = await client.messages.create(payload);
     return { success: true, sid: result.sid };
   } catch (error) {
     console.error('Twilio SMS Error:', error);
@@ -71,4 +77,3 @@ exports.verifyTwilioCode = async ({ to, code }) => {
     };
   }
 };
-
