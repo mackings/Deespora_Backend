@@ -64,6 +64,27 @@ function haversineDistanceKm(a, b) {
   return R * c;
 }
 
+function isRestaurant(place) {
+  return Array.isArray(place?.types) && place.types.includes("restaurant");
+}
+
+function isNigeriaResult(place) {
+  const components = Array.isArray(place?.address_components)
+    ? place.address_components.map((c) => `${c.long_name || ""} ${c.short_name || ""}`).join(" ")
+    : "";
+  const text = [
+    place?.formatted_address,
+    place?.vicinity,
+    place?.plus_code?.compound_code,
+    place?.plus_code?.global_code,
+    components,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return text.includes("nigeria");
+}
+
 // 🔎 Resolve a city name to lat/lng
 async function getCityCoordinates(city) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json`;
@@ -103,6 +124,46 @@ async function fetchRestaurantsNearLocation({ lat, lng, keyword }) {
           key: process.env.GOOGLE_PLACES_API_KEY,
           location: `${lat},${lng}`,
           radius: 50000,
+          type: "restaurant",
+          keyword,
+          pagetoken: nextPageToken,
+        },
+      });
+
+      if (response.data.status !== "OK") {
+        console.error(`⚠️ [Nearby Search] status=${response.data.status}`, response.data.error_message);
+      }
+
+      if (response.data.results?.length) {
+        const filtered = response.data.results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
+        allResults.push(...filtered);
+      }
+
+      nextPageToken = response.data.next_page_token;
+      if (nextPageToken) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (err) {
+      console.error(`❌ [Nearby Search] Failed for keyword "${keyword}":`, err.response?.data || err.message);
+      break;
+    }
+  } while (nextPageToken && allResults.length < 200);
+
+  return allResults;
+}
+
+async function fetchRestaurantsNearLocationWithRadius({ lat, lng, keyword, radius }) {
+  const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
+  let allResults = [];
+  let nextPageToken = null;
+
+  do {
+    try {
+      const response = await axios.get(url, {
+        params: {
+          key: process.env.GOOGLE_PLACES_API_KEY,
+          location: `${lat},${lng}`,
+          radius,
           type: "restaurant",
           keyword,
           pagetoken: nextPageToken,
@@ -205,10 +266,12 @@ async function fetchAndCacheRestaurants() {
           }
 
           if (response.data.results?.length) {
-            response.data.results.forEach((r) => {
-              r.city = city.name;
-              resultMap.set(r.place_id, r);
-            });
+            response.data.results
+              .filter((r) => isRestaurant(r) && !isNigeriaResult(r))
+              .forEach((r) => {
+                r.city = city.name;
+                resultMap.set(r.place_id, r);
+              });
           }
 
           nextPageToken = response.data.next_page_token;
@@ -253,8 +316,9 @@ exports.getRestaurants = async (req, res) => {
   try {
     const cachedData = readCache(CACHE_NAME);
     if (cachedData && cachedData.length > 0) {
+      const filteredCache = cachedData.filter((p) => isRestaurant(p) && !isNigeriaResult(p));
       console.log("📌 Returning cached restaurants with reviews");
-      return success(res, "African restaurants across the US (from cache)", cachedData);
+      return success(res, "African restaurants across the US (from cache)", filteredCache);
     }
 
     const data = await fetchAndCacheRestaurants();
@@ -296,7 +360,7 @@ exports.getNearbyRestaurants = async (req, res) => {
       return error(res, "Invalid coordinates", 400);
     }
 
-    const cachedData = readCache(CACHE_NAME) || [];
+    const cachedData = (readCache(CACHE_NAME) || []).filter((p) => isRestaurant(p) && !isNigeriaResult(p));
     const withDistance = cachedData
       .filter((place) => place?.geometry?.location)
       .map((place) => {
@@ -344,7 +408,8 @@ exports.getNearbyRestaurants = async (req, res) => {
       fetched.push(...results);
     }
 
-    const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values());
+    const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values())
+      .filter((p) => isRestaurant(p) && !isNigeriaResult(p));
     const toCache = [...cachedData, ...deduped];
     writeCache(toCache, CACHE_NAME);
 
@@ -381,44 +446,93 @@ exports.getNearbyRestaurants = async (req, res) => {
 // --------------------------------------------------
 exports.searchRestaurants = async (req, res) => {
   try {
-    const { city, keyword } = req.query;
+    const { city, keyword, lat, lng } = req.query;
     if (!keyword) return error(res, "Keyword is required", 400);
-    if (!city) return error(res, "City is required", 400);
+    if (!city && (!lat || !lng)) return error(res, "City or lat/lng is required", 400);
 
-    // 1) Get city coordinates
-    const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json`;
-    const geoRes = await axios.get(geoUrl, {
-      params: { address: city, key: process.env.GOOGLE_PLACES_API_KEY },
-    });
-    if (!geoRes.data.results?.length) return error(res, `City "${city}" not found`, 404);
+    let coords;
+    if (lat && lng) {
+      coords = { lat: Number(lat), lng: Number(lng) };
+      if (Number.isNaN(coords.lat) || Number.isNaN(coords.lng)) {
+        return error(res, "Invalid coordinates", 400);
+      }
+    } else {
+      // 1) Get city coordinates
+      const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json`;
+      const geoRes = await axios.get(geoUrl, {
+        params: { address: city, key: process.env.GOOGLE_PLACES_API_KEY },
+      });
+      if (!geoRes.data.results?.length) return error(res, `City "${city}" not found`, 404);
 
-    const { lat, lng } = geoRes.data.results[0].geometry.location;
+      const geoResult = geoRes.data.results[0];
+      const country = geoResult.address_components?.find((c) => c.types?.includes("country"))?.short_name;
+      if (country === "NG") {
+        return error(res, "Searches for Nigeria are not supported", 400);
+      }
+      coords = geoResult.geometry.location;
+    }
 
-    // 2) Search restaurants
+    // 2) Search restaurants (prefer nearby, widen radius if needed)
+    const radiusTiers = [3000, 8000, 20000];
+    let nearbyResults = [];
+    for (const radius of radiusTiers) {
+      const results = await fetchRestaurantsNearLocationWithRadius({
+        lat: coords.lat,
+        lng: coords.lng,
+        keyword,
+        radius,
+      });
+      const filtered = results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
+      if (filtered.length > 0) {
+        nearbyResults = filtered;
+        break;
+      }
+    }
+
+    let allResults = [];
+    if (nearbyResults.length > 0) {
+      allResults = nearbyResults;
+    } else {
+      // 3) Fallback to text search
     const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
-    const allResults = [];
     let nextPageToken = null;
 
     do {
       const response = await axios.get(url, {
         params: {
           key: process.env.GOOGLE_PLACES_API_KEY,
-          query: `${keyword} restaurant in ${city}`,
-          location: `${lat},${lng}`,
+          query: city ? `${keyword} in ${city}` : keyword,
+          location: `${coords.lat},${coords.lng}`,
           radius: 5000,
+          type: "restaurant",
           pagetoken: nextPageToken,
         },
       });
 
       if (response.data.results?.length) {
-        allResults.push(...response.data.results);
+        const filtered = response.data.results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
+        allResults.push(...filtered);
       }
 
       nextPageToken = response.data.next_page_token;
       if (nextPageToken) await new Promise(r => setTimeout(r, 2000));
     } while (nextPageToken && allResults.length < 100);
+    }
 
-    const limitedResults = allResults.slice(0, 20); // limit for demo
+    const withDistance = allResults
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const limitedResults = withDistance.slice(0, 20); // limit for demo
 
     // 🔑 Fetch reviews for top 10
     const withReviews = await Promise.all(
