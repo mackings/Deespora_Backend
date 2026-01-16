@@ -27,12 +27,63 @@ const AFRICAN_CHURCH_KEYWORDS = [
   "Dunamis International Gospel Centre",
   "The Elevation Church",
   "Citadel Global Community Church",
+  "The Redeemed Evangelical Mission TREM",
+  "Dominion City",
+  "Harvesters International Christian Center",
+  "Latter Rain Assembly",
+  "Household of God Church",
+  "Christ Apostolic Church",
+  "Assemblies of God",
+  "Cherubim and Seraphim",
+  "Celestial Church of Christ",
+  "Deeper Christian Life Ministry",
+  "Redeemed Gospel Church",
+  "Gospel Faith Mission International",
+  "Presbyterian Church of Ghana",
+  "Methodist Church Ghana",
+  "Anglican Church of Kenya",
+  "Ethiopian Orthodox Tewahedo Church",
+  "Eritrean Orthodox Tewahedo Church",
+  "Coptic Orthodox Church",
+  "African Methodist Episcopal Church AME",
+  "African Methodist Episcopal Zion Church AME Zion",
+  "United Methodist Church",
+  "Catholic Church",
   "Nigerian church",
   "Ghanaian church",
   "Congolese church",
   "Eritrean church",
   "Ethiopian church",
 ];
+
+function normalizeKeyword(value) {
+  return String(value || "").toLowerCase().trim();
+}
+
+function matchesKeyword(place, keyword) {
+  const haystack = [
+    place?.name,
+    place?.formatted_address,
+    place?.vicinity,
+    Array.isArray(place?.types) ? place.types.join(" ") : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(normalizeKeyword(keyword));
+}
+
+function buildWorshipSearchKeywords(keyword) {
+  const normalized = normalizeKeyword(keyword);
+  if (!normalized) return [];
+  const keywords = [keyword];
+  const includesChurch = normalized.includes("church") || normalized.includes("worship");
+  const matchesKnown = AFRICAN_CHURCH_KEYWORDS.map((k) => k.toLowerCase()).includes(normalized);
+  if (includesChurch || matchesKnown) {
+    keywords.push(...AFRICAN_CHURCH_KEYWORDS);
+  }
+  return Array.from(new Set(keywords));
+}
 
 function isWorshipPlace(place) {
   const types = Array.isArray(place?.types) ? place.types : [];
@@ -366,49 +417,67 @@ exports.searchWorship = async (req, res) => {
       coords = geoResult.geometry.location;
     }
 
-    const radiusTiers = [3000, 8000, 20000];
-    let nearbyResults = [];
-    for (const radius of radiusTiers) {
-      const results = await fetchWorshipNearLocationWithRadius({
-        lat: coords.lat,
-        lng: coords.lng,
-        keyword,
-        radius,
-      });
-      const filtered = results.filter((r) => isWorshipPlace(r) && !isNigeriaResult(r));
-      if (filtered.length > 0) {
-        nearbyResults = filtered;
-        break;
+    const searchKeywords = buildWorshipSearchKeywords(keyword);
+    const cachedData = (readCache(CACHE_NAME) || []).filter((p) => isWorshipPlace(p) && !isNigeriaResult(p));
+    const cachedMatches = cachedData.filter((place) => searchKeywords.some((k) => matchesKeyword(place, k)));
+    const usedCache = cachedMatches.length > 0;
+
+    let allResults = [];
+    if (usedCache) {
+      allResults = cachedMatches;
+    } else {
+      const radiusTiers = [3000, 8000, 20000];
+      let nearbyResults = [];
+      for (const radius of radiusTiers) {
+        const collected = [];
+        for (const searchKeyword of searchKeywords) {
+          const results = await fetchWorshipNearLocationWithRadius({
+            lat: coords.lat,
+            lng: coords.lng,
+            keyword: searchKeyword,
+            radius,
+          });
+          collected.push(...results);
+        }
+        const filtered = collected.filter((r) => isWorshipPlace(r) && !isNigeriaResult(r));
+        if (filtered.length > 0) {
+          nearbyResults = filtered;
+          break;
+        }
+      }
+
+      if (nearbyResults.length > 0) {
+        allResults = nearbyResults;
+      } else {
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+        let nextPageToken = null;
+
+        do {
+          const response = await axios.get(url, {
+            params: {
+              key: process.env.GOOGLE_PLACES_API_KEY,
+              query: city ? `${keyword} in ${city}` : keyword,
+              location: `${coords.lat},${coords.lng}`,
+              radius: 5000,
+              type: "church",
+              pagetoken: nextPageToken,
+            },
+          });
+
+          if (response.data.results?.length) {
+            const filtered = response.data.results.filter((r) => isWorshipPlace(r) && !isNigeriaResult(r));
+            allResults.push(...filtered);
+          }
+
+          nextPageToken = response.data.next_page_token;
+          if (nextPageToken) await new Promise((r) => setTimeout(r, 2000));
+        } while (nextPageToken && allResults.length < 100);
       }
     }
 
-    let allResults = [];
-    if (nearbyResults.length > 0) {
-      allResults = nearbyResults;
-    } else {
-      const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
-      let nextPageToken = null;
-
-    do {
-      const response = await axios.get(url, {
-        params: {
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          query: city ? `${keyword} in ${city}` : keyword,
-          location: `${coords.lat},${coords.lng}`,
-          radius: 5000,
-          type: "church",
-          pagetoken: nextPageToken,
-        },
-      });
-
-      if (response.data.results?.length) {
-        const filtered = response.data.results.filter((r) => isWorshipPlace(r) && !isNigeriaResult(r));
-        allResults.push(...filtered);
-      }
-
-      nextPageToken = response.data.next_page_token;
-      if (nextPageToken) await new Promise((r) => setTimeout(r, 2000));
-    } while (nextPageToken && allResults.length < 100);
+    if (!usedCache && allResults.length > 0) {
+      const deduped = Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values());
+      writeCache(deduped, CACHE_NAME);
     }
 
     const withDistance = allResults

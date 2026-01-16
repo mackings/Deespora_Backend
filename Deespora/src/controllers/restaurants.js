@@ -8,6 +8,60 @@ const CACHE_NAME = "restaurants";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
 const RADIUS_TIERS_MINUTES = [5, 30, 60];
 
+const AFRICAN_FOOD_KEYWORDS = [
+  "jollof",
+  "amala",
+  "egusi",
+  "suya",
+  "fufu",
+  "pounded yam",
+  "akara",
+  "ofada",
+  "moi moi",
+  "waakye",
+  "injera",
+  "doro wat",
+  "berbere",
+  "nyama choma",
+  "bunny chow",
+  "bobotie",
+  "banku",
+  "kenkey",
+  "koko",
+  "bofrot",
+  "shito",
+  "tuo zaafi",
+  "kebab",
+  "shawarma",
+  "mandazi",
+  "samosa",
+  "chapati",
+  "ugali",
+  "sadza",
+  "pap",
+  "chakalaka",
+  "matoke",
+  "posho",
+  "koshari",
+  "ful medames",
+  "molokhia",
+  "tagine",
+  "couscous",
+  "harira",
+  "muamba",
+  "yassa",
+  "thieboudienne",
+  "attieke",
+  "efo riro",
+  "edikaikong",
+  "ogbono",
+  "banga soup",
+  "pepper soup",
+  "okro soup",
+  "fried plantain",
+  "red red",
+];
+
 const AFRICAN_RESTAURANT_KEYWORDS = [
   "African",
   "African restaurant",
@@ -21,6 +75,33 @@ const AFRICAN_RESTAURANT_KEYWORDS = [
   "Afro fusion restaurant",
   "Afro-caribbean restaurant",
 ];
+
+function normalizeKeyword(value) {
+  return String(value || "").toLowerCase().trim();
+}
+
+function matchesKeyword(place, keyword) {
+  const haystack = [
+    place?.name,
+    place?.formatted_address,
+    place?.vicinity,
+    Array.isArray(place?.types) ? place.types.join(" ") : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(normalizeKeyword(keyword));
+}
+
+function buildRestaurantSearchKeywords(keyword) {
+  const normalized = normalizeKeyword(keyword);
+  if (!normalized) return [];
+  const keywords = [keyword];
+  if (AFRICAN_FOOD_KEYWORDS.includes(normalized)) {
+    keywords.push(...AFRICAN_RESTAURANT_KEYWORDS);
+  }
+  return Array.from(new Set(keywords));
+}
 
 cron.schedule("59 23 28-31 * *", async () => {
   console.log("⏰ Running daily cache refresh for African restaurants...");
@@ -447,51 +528,69 @@ exports.searchRestaurants = async (req, res) => {
       coords = geoResult.geometry.location;
     }
 
-    // 2) Search restaurants (prefer nearby, widen radius if needed)
-    const radiusTiers = [3000, 8000, 20000];
-    let nearbyResults = [];
-    for (const radius of radiusTiers) {
-      const results = await fetchRestaurantsNearLocationWithRadius({
-        lat: coords.lat,
-        lng: coords.lng,
-        keyword,
-        radius,
-      });
-      const filtered = results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
-      if (filtered.length > 0) {
-        nearbyResults = filtered;
-        break;
+    const searchKeywords = buildRestaurantSearchKeywords(keyword);
+    const cachedData = (readCache(CACHE_NAME) || []).filter((p) => isRestaurant(p) && !isNigeriaResult(p));
+    const cachedMatches = cachedData.filter((place) => searchKeywords.some((k) => matchesKeyword(place, k)));
+    const usedCache = cachedMatches.length > 0;
+
+    let allResults = [];
+    if (usedCache) {
+      allResults = cachedMatches;
+    } else {
+      // 2) Search restaurants (prefer nearby, widen radius if needed)
+      const radiusTiers = [3000, 8000, 20000];
+      let nearbyResults = [];
+      for (const radius of radiusTiers) {
+        const collected = [];
+        for (const searchKeyword of searchKeywords) {
+          const results = await fetchRestaurantsNearLocationWithRadius({
+            lat: coords.lat,
+            lng: coords.lng,
+            keyword: searchKeyword,
+            radius,
+          });
+          collected.push(...results);
+        }
+        const filtered = collected.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
+        if (filtered.length > 0) {
+          nearbyResults = filtered;
+          break;
+        }
+      }
+
+      if (nearbyResults.length > 0) {
+        allResults = nearbyResults;
+      } else {
+        // 3) Fallback to text search
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
+        let nextPageToken = null;
+
+        do {
+          const response = await axios.get(url, {
+            params: {
+              key: process.env.GOOGLE_PLACES_API_KEY,
+              query: city ? `${keyword} in ${city}` : keyword,
+              location: `${coords.lat},${coords.lng}`,
+              radius: 5000,
+              type: "restaurant",
+              pagetoken: nextPageToken,
+            },
+          });
+
+          if (response.data.results?.length) {
+            const filtered = response.data.results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
+            allResults.push(...filtered);
+          }
+
+          nextPageToken = response.data.next_page_token;
+          if (nextPageToken) await new Promise(r => setTimeout(r, 2000));
+        } while (nextPageToken && allResults.length < 100);
       }
     }
 
-    let allResults = [];
-    if (nearbyResults.length > 0) {
-      allResults = nearbyResults;
-    } else {
-      // 3) Fallback to text search
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
-    let nextPageToken = null;
-
-    do {
-      const response = await axios.get(url, {
-        params: {
-          key: process.env.GOOGLE_PLACES_API_KEY,
-          query: city ? `${keyword} in ${city}` : keyword,
-          location: `${coords.lat},${coords.lng}`,
-          radius: 5000,
-          type: "restaurant",
-          pagetoken: nextPageToken,
-        },
-      });
-
-      if (response.data.results?.length) {
-        const filtered = response.data.results.filter((r) => isRestaurant(r) && !isNigeriaResult(r));
-        allResults.push(...filtered);
-      }
-
-      nextPageToken = response.data.next_page_token;
-      if (nextPageToken) await new Promise(r => setTimeout(r, 2000));
-    } while (nextPageToken && allResults.length < 100);
+    if (!usedCache && allResults.length > 0) {
+      const deduped = Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values());
+      writeCache(deduped, CACHE_NAME);
     }
 
     const withDistance = allResults
