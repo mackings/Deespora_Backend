@@ -8,14 +8,24 @@ const CACHE_NAME = "restaurants";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
 const RADIUS_TIERS_MINUTES = [5, 30, 60];
 
+const AFRICAN_RESTAURANT_KEYWORDS = [
+  "African",
+  "African restaurant",
+  "African cuisine",
+  "Nigerian restaurant",
+  "Ethiopian restaurant",
+  "Ghanaian restaurant",
+  "Senegalese restaurant",
+  "Somali restaurant",
+  "North African restaurant",
+  "Afro fusion restaurant",
+  "Afro-caribbean restaurant",
+];
 
 cron.schedule("59 23 28-31 * *", async () => {
   console.log("⏰ Running daily cache refresh for African restaurants...");
   try {
-    await getRestaurants({ /* dummy req */ }, { 
-      json: () => {},
-      status: () => ({ json: () => {} }),
-    });
+    await fetchAndCacheRestaurants();
     console.log("✅ Cache refreshed successfully");
   } catch (err) {
     console.error("❌ Failed to refresh cache:", err);
@@ -104,7 +114,12 @@ async function getCityCoordinates(city) {
       throw new Error(`Could not find coordinates for "${city}"`);
     }
 
-    const { lat, lng } = resp.data.results[0].geometry.location;
+    const geoResult = resp.data.results[0];
+    const country = geoResult.address_components?.find((c) => c.types?.includes("country"))?.short_name;
+    if (country === "NG") {
+      throw new Error("Searches for Nigeria are not supported");
+    }
+    const { lat, lng } = geoResult.geometry.location;
     return { lat, lng };
   } catch (err) {
     console.error("❌ [getCityCoordinates] Request failed:", err.response?.data || err.message);
@@ -226,26 +241,12 @@ async function fetchAndCacheRestaurants() {
     { name: "Raleigh", lat: 35.7796, lng: -78.6382 },
   ];
 
-  const searchKeywords = [
-    "African",
-    "African restaurant",
-    "African cuisine",
-    "Nigerian restaurant",
-    "Ethiopian restaurant",
-    "Ghanaian restaurant",
-    "Senegalese restaurant",
-    "Somali restaurant",
-    "North African restaurant",
-    "Afro fusion restaurant",
-    "Afro-caribbean restaurant",
-  ];
-
   const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json`;
   const resultMap = new Map();
 
   for (const city of usCities) {
     console.log(`📍 Searching restaurants in ${city.name}...`);
-    for (const keyword of searchKeywords) {
+    for (const keyword of AFRICAN_RESTAURANT_KEYWORDS) {
       let nextPageToken = null;
 
       do {
@@ -313,20 +314,7 @@ async function fetchAndCacheRestaurants() {
 
 // ✅ API Handler
 exports.getRestaurants = async (req, res) => {
-  try {
-    const cachedData = readCache(CACHE_NAME);
-    if (cachedData && cachedData.length > 0) {
-      const filteredCache = cachedData.filter((p) => isRestaurant(p) && !isNigeriaResult(p));
-      console.log("📌 Returning cached restaurants with reviews");
-      return success(res, "African restaurants across the US (from cache)", filteredCache);
-    }
-
-    const data = await fetchAndCacheRestaurants();
-    return success(res, "African restaurants across the US", data);
-  } catch (err) {
-    console.error("❌ Error fetching African restaurants:", err.response?.data || err.message);
-    return error(res, "Failed to fetch African restaurants", 500, err.message);
-  }
+  return exports.getNearbyRestaurants(req, res);
 };
 
 // 🕒 Daily refresh at midnight
@@ -385,21 +373,8 @@ exports.getNearbyRestaurants = async (req, res) => {
       });
     }
 
-    const keywords = [
-      "African",
-      "African restaurant",
-      "African cuisine",
-      "Nigerian restaurant",
-      "Ethiopian restaurant",
-      "Ghanaian restaurant",
-      "Senegalese restaurant",
-      "Somali restaurant",
-      "North African restaurant",
-      "Afro-caribbean restaurant",
-    ];
-
     const fetched = [];
-    for (const keyword of keywords) {
+    for (const keyword of AFRICAN_RESTAURANT_KEYWORDS) {
       const results = await fetchRestaurantsNearLocation({
         lat: coords.lat,
         lng: coords.lng,

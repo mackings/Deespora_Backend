@@ -5,6 +5,24 @@ const { readCache, writeCache } = require("../utils/RestCache");
 
 const CACHE_NAME = "catering";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
+const RADIUS_TIERS_MINUTES = [5, 30, 60];
+
+const AFRICAN_CATERING_KEYWORDS = [
+  "African",
+  "African catering",
+  "African cuisine",
+  "African restaurant",
+  "Nigerian catering",
+  "Ghanaian catering",
+  "Ethiopian catering",
+  "Cameroonian catering",
+  "Kenyan catering",
+  "Senegalese catering",
+  "Somali catering",
+  "African food service",
+  "African restaurant catering",
+  "Diaspora catering",
+];
 
 function isCateringPlace(place) {
   const types = Array.isArray(place?.types) ? place.types : [];
@@ -86,6 +104,36 @@ async function fetchCateringNearLocationWithRadius({ lat, lng, keyword, radius }
   return allResults;
 }
 
+async function resolveCoordinatesFromQuery({ lat, lng, city }) {
+  if (lat && lng) {
+    const coords = { lat: Number(lat), lng: Number(lng) };
+    if (Number.isNaN(coords.lat) || Number.isNaN(coords.lng)) {
+      return { errorMessage: "Invalid coordinates", statusCode: 400 };
+    }
+    return { coords };
+  }
+
+  if (!city) {
+    return { errorMessage: "City or lat/lng is required", statusCode: 400 };
+  }
+
+  const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json`;
+  const geoRes = await axios.get(geoUrl, {
+    params: { address: city, key: process.env.GOOGLE_PLACES_API_KEY },
+  });
+  if (!geoRes.data.results?.length) {
+    return { errorMessage: `City "${city}" not found`, statusCode: 404 };
+  }
+
+  const geoResult = geoRes.data.results[0];
+  const country = geoResult.address_components?.find((c) => c.types?.includes("country"))?.short_name;
+  if (country === "NG") {
+    return { errorMessage: "Searches for Nigeria are not supported", statusCode: 400 };
+  }
+
+  return { coords: geoResult.geometry.location };
+}
+
 // =======================
 // Fetch Reviews for a Place
 // =======================
@@ -125,28 +173,11 @@ async function fetchAndCacheCateringCompanies() {
     "Detroit", "Newark", "St. Louis", "Tampa", "Raleigh"
   ];
 
-  const africanKeywords = [
-    "African",
-    "African catering",
-    "African cuisine",
-    "African restaurant",
-    "Nigerian catering",
-    "Ghanaian catering",
-    "Ethiopian catering",
-    "Cameroonian catering",
-    "Kenyan catering",
-    "Senegalese catering",
-    "Somali catering",
-    "African food service",
-    "African restaurant catering",
-    "Diaspora catering"
-  ];
-
   const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
   const resultMap = new Map();
 
   for (const city of usCities) {
-    for (const keyword of africanKeywords) {
+    for (const keyword of AFRICAN_CATERING_KEYWORDS) {
       console.log(`📍 Searching "${keyword}" in ${city}...`);
       let nextPageToken = null;
 
@@ -215,15 +246,70 @@ async function fetchAndCacheCateringCompanies() {
 // =======================
 exports.getCateringCompanies = async (req, res) => {
   try {
-    const cachedData = readCache(CACHE_NAME);
-    if (cachedData && cachedData.length > 0) {
-      const filteredCache = cachedData.filter((p) => isCateringPlace(p) && !isNigeriaResult(p));
-      console.log("📌 Returning cached catering companies");
-      return success(res, "African catering companies (from cache)", filteredCache);
+    const { coords, errorMessage, statusCode } = await resolveCoordinatesFromQuery(req.query);
+    if (errorMessage) {
+      return error(res, errorMessage, statusCode);
     }
 
-    const data = await fetchAndCacheCateringCompanies();
-    return success(res, "African catering companies (fresh from Google)", data);
+    const cachedData = (readCache(CACHE_NAME) || []).filter((p) => isCateringPlace(p) && !isNigeriaResult(p));
+    const withDistance = cachedData
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const maxRadiusKm = RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1] * DRIVE_SPEED_KM_PER_MIN;
+    const withinMaxRadius = withDistance.filter((place) => place.distanceKm <= maxRadiusKm);
+    if (withinMaxRadius.length > 0) {
+      return success(res, "Nearby African catering companies (from cache)", {
+        source: "cache",
+        radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
+        count: withinMaxRadius.length,
+        catering: withinMaxRadius,
+      });
+    }
+
+    const fetched = [];
+    for (const keyword of AFRICAN_CATERING_KEYWORDS) {
+      const results = await fetchCateringNearLocationWithRadius({
+        lat: coords.lat,
+        lng: coords.lng,
+        keyword,
+        radius: 50000,
+      });
+      fetched.push(...results);
+    }
+
+    const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values())
+      .filter((p) => isCateringPlace(p) && !isNigeriaResult(p));
+    writeCache([...cachedData, ...deduped], CACHE_NAME);
+
+    const enriched = deduped
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return success(res, "Nearby African catering companies (fresh + cached)", {
+      source: "google",
+      radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
+      count: enriched.length,
+      catering: enriched,
+    });
   } catch (err) {
     console.error("❌ Error fetching companies:", err.message);
     return error(res, "Failed to fetch African catering companies", 500, err.message);

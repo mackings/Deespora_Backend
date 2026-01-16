@@ -7,8 +7,12 @@
       "name": "Get Restaurants (cached, expanded)",
       "method": "GET",
       "path": "/restaurants",
-      "description": "Fetch African restaurants across the US. Uses cache when available, otherwise fetches from Google and caches results.",
-      "query": [],
+      "description": "Find nearby African restaurants using cache-first distance matching (5/30/60 min tiers). If none in cache, fetches from Google and caches.",
+      "query": [
+        { "name": "lat", "type": "number", "required": false, "example": 40.7128 },
+        { "name": "lng", "type": "number", "required": false, "example": -74.006 },
+        { "name": "city", "type": "string", "required": false, "example": "New York" }
+      ],
       "body": null
     },
     {
@@ -66,9 +70,13 @@
     {
       "name": "Get Worship (cached, expanded)",
       "method": "GET",
-      "path": "/realestate",
-      "description": "Fetch African worship/church listings across the US. Uses cache when available, otherwise fetches from Google and caches results.",
-      "query": [],
+      "path": "/worship",
+      "description": "Find nearby African worship/church listings using cache-first distance matching (5/30/60 min tiers). If none in cache, fetches from Google and caches results.",
+      "query": [
+        { "name": "lat", "type": "number", "required": false, "example": 33.749 },
+        { "name": "lng", "type": "number", "required": false, "example": -84.388 },
+        { "name": "city", "type": "string", "required": false, "example": "Atlanta" }
+      ],
       "body": null
     },
     {
@@ -86,8 +94,12 @@
       "name": "Get Catering (cached, expanded)",
       "method": "GET",
       "path": "/catering",
-      "description": "Fetch African catering companies across the US. Uses cache when available, otherwise fetches from Google and caches results.",
-      "query": [],
+      "description": "Find nearby African catering companies using cache-first distance matching (5/30/60 min tiers). If none in cache, fetches from Google and caches results.",
+      "query": [
+        { "name": "lat", "type": "number", "required": false, "example": 29.7604 },
+        { "name": "lng", "type": "number", "required": false, "example": -95.3698 },
+        { "name": "city", "type": "string", "required": false, "example": "Houston" }
+      ],
       "body": null
     },
     {

@@ -5,6 +5,34 @@ const { readCache, writeCache } = require("../utils/RestCache");
 
 const CACHE_NAME = "worship";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
+const RADIUS_TIERS_MINUTES = [5, 30, 60];
+
+const AFRICAN_CHURCH_KEYWORDS = [
+  "African church",
+  "African worship",
+  "African worship center",
+  "African christian church",
+  "African Pentecostal church",
+  "Redeemed Christian Church of God RCCG",
+  "Mountain of Fire and Miracles Ministries MFM",
+  "Living Faith Church Winners Chapel",
+  "Christ Embassy Believers LoveWorld",
+  "Deeper Life Bible Church",
+  "The Synagogue Church of All Nations SCOAN",
+  "Salvation Ministries",
+  "House on the Rock Church",
+  "The Lord's Chosen Charismatic Revival Movement",
+  "Daystar Christian Centre",
+  "Commonwealth of Zion Assembly COZA",
+  "Dunamis International Gospel Centre",
+  "The Elevation Church",
+  "Citadel Global Community Church",
+  "Nigerian church",
+  "Ghanaian church",
+  "Congolese church",
+  "Eritrean church",
+  "Ethiopian church",
+];
 
 function isWorshipPlace(place) {
   const types = Array.isArray(place?.types) ? place.types : [];
@@ -82,6 +110,36 @@ async function fetchWorshipNearLocationWithRadius({ lat, lng, keyword, radius })
   return allResults;
 }
 
+async function resolveCoordinatesFromQuery({ lat, lng, city }) {
+  if (lat && lng) {
+    const coords = { lat: Number(lat), lng: Number(lng) };
+    if (Number.isNaN(coords.lat) || Number.isNaN(coords.lng)) {
+      return { errorMessage: "Invalid coordinates", statusCode: 400 };
+    }
+    return { coords };
+  }
+
+  if (!city) {
+    return { errorMessage: "City or lat/lng is required", statusCode: 400 };
+  }
+
+  const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json`;
+  const geoRes = await axios.get(geoUrl, {
+    params: { address: city, key: process.env.GOOGLE_PLACES_API_KEY },
+  });
+  if (!geoRes.data.results?.length) {
+    return { errorMessage: `City "${city}" not found`, statusCode: 404 };
+  }
+
+  const geoResult = geoRes.data.results[0];
+  const country = geoResult.address_components?.find((c) => c.types?.includes("country"))?.short_name;
+  if (country === "NG") {
+    return { errorMessage: "Searches for Nigeria are not supported", statusCode: 400 };
+  }
+
+  return { coords: geoResult.geometry.location };
+}
+
 // =======================
 // Fetch Reviews for a Place
 // =======================
@@ -121,39 +179,11 @@ async function fetchAndCacheAfricanChurches() {
     "Detroit", "Newark", "St. Louis", "Tampa", "Raleigh"
   ];
 
-  // Major African Pentecostal/Charismatic Churches
-  const africanChurches = [
-    "African church",
-    "African worship",
-    "African worship center",
-    "African christian church",
-    "African Pentecostal church",
-    "Redeemed Christian Church of God RCCG",
-    "Mountain of Fire and Miracles Ministries MFM",
-    "Living Faith Church Winners Chapel",
-    "Christ Embassy Believers LoveWorld",
-    "Deeper Life Bible Church",
-    "The Synagogue Church of All Nations SCOAN",
-    "Salvation Ministries",
-    "House on the Rock Church",
-    "The Lord's Chosen Charismatic Revival Movement",
-    "Daystar Christian Centre",
-    "Commonwealth of Zion Assembly COZA",
-    "Dunamis International Gospel Centre",
-    "The Elevation Church",
-    "Citadel Global Community Church",
-    "Nigerian church",
-    "Ghanaian church",
-    "Congolese church",
-    "Eritrean church",
-    "Ethiopian church",
-  ];
-
   const url = `https://maps.googleapis.com/maps/api/place/textsearch/json`;
   const resultMap = new Map();
 
   for (const city of usCities) {
-    for (const churchName of africanChurches) {
+    for (const churchName of AFRICAN_CHURCH_KEYWORDS) {
       console.log(`⛪ Searching "${churchName}" in ${city}...`);
       let nextPageToken = null;
 
@@ -223,15 +253,70 @@ async function fetchAndCacheAfricanChurches() {
 // =======================
 exports.getAfricanChurches = async (req, res) => {
   try {
-    const cachedData = readCache(CACHE_NAME);
-    if (cachedData && cachedData.length > 0) {
-      const filteredCache = cachedData.filter((p) => isWorshipPlace(p) && !isNigeriaResult(p));
-      console.log("📌 Returning cached African churches");
-      return success(res, "African churches (from cache)", filteredCache);
+    const { coords, errorMessage, statusCode } = await resolveCoordinatesFromQuery(req.query);
+    if (errorMessage) {
+      return error(res, errorMessage, statusCode);
     }
 
-    const data = await fetchAndCacheAfricanChurches();
-    return success(res, "African churches (fresh from Google)", data);
+    const cachedData = (readCache(CACHE_NAME) || []).filter((p) => isWorshipPlace(p) && !isNigeriaResult(p));
+    const withDistance = cachedData
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const maxRadiusKm = RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1] * DRIVE_SPEED_KM_PER_MIN;
+    const withinMaxRadius = withDistance.filter((place) => place.distanceKm <= maxRadiusKm);
+    if (withinMaxRadius.length > 0) {
+      return success(res, "Nearby African churches (from cache)", {
+        source: "cache",
+        radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
+        count: withinMaxRadius.length,
+        worship: withinMaxRadius,
+      });
+    }
+
+    const fetched = [];
+    for (const keyword of AFRICAN_CHURCH_KEYWORDS) {
+      const results = await fetchWorshipNearLocationWithRadius({
+        lat: coords.lat,
+        lng: coords.lng,
+        keyword,
+        radius: 50000,
+      });
+      fetched.push(...results);
+    }
+
+    const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values())
+      .filter((p) => isWorshipPlace(p) && !isNigeriaResult(p));
+    writeCache([...cachedData, ...deduped], CACHE_NAME);
+
+    const enriched = deduped
+      .filter((place) => place?.geometry?.location)
+      .map((place) => {
+        const placeCoords = {
+          lat: place.geometry.location.lat,
+          lng: place.geometry.location.lng,
+        };
+        const distanceKm = haversineDistanceKm(coords, placeCoords);
+        const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
+        return { ...place, distanceKm, distanceMinutes };
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return success(res, "Nearby African churches (fresh + cached)", {
+      source: "google",
+      radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
+      count: enriched.length,
+      worship: enriched,
+    });
   } catch (err) {
     console.error("❌ Error fetching churches:", err.message);
     return error(res, "Failed to fetch African churches", 500, err.message);
