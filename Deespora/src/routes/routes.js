@@ -28,6 +28,8 @@ const { getRestaurants, searchRestaurants, getNearbyRestaurants } = require("../
 const { getAfricanChurches, searchWorship } = require("../controllers/worship.js");
 const { getCateringCompanies, searchCatering } = require("../controllers/catering.js");
 const { createCategory, getCategories, getCategoryById, updateCategory, deleteCategory, createListing, promoteListing,getListings,getListingById ,updateListing,deleteListing} = require("../controllers/Listings.js");
+const { refreshDiscoveryImages } = require("../controllers/cache.js");
+const { getNotifications } = require("../controllers/notifications.js");
 
 
 
@@ -71,6 +73,7 @@ router.post('/auth/verify-otp', verifyEmailOtp);
 //Events
 router.get("/all-events", getEvents);
 router.post("/search-events", searchEvent);
+router.get("/notifications", getNotifications);
 
 
 //Restaurants
@@ -96,6 +99,9 @@ router.get("/search-worship", searchWorship);
 
 router.get("/all-users", getAllUsers);
 router.get("/get-user", getUser);
+
+// Cache maintenance
+router.post("/cache/refresh-images", refreshDiscoveryImages);
 
 // Change this line
 router.post("/listings", upload.any(), createListing);

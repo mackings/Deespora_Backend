@@ -7,6 +7,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
 const { preloadCaches } = require("./src/utils/RestCache");
+const { startDiscoveryImageRefreshCron } = require("./src/utils/discoveryImageRefresh");
 
 require("./src/utils/db.js");
 const routes = require("./src/routes/routes.js");
@@ -14,6 +15,7 @@ const routes = require("./src/routes/routes.js");
 dotenv.config();
 const app = express();
 preloadCaches();
+startDiscoveryImageRefreshCron();
 
 // CORS Configuration
 const allowedOrigins = [

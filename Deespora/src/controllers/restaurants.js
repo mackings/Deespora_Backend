@@ -1,7 +1,11 @@
 const axios = require("axios");
 const {success,error} = require("../utils/response")
 const { readCache, writeCache } = require('../utils/RestCache');
-const { attachGooglePlacePhotoUrls } = require("../utils/googlePlacePhotos");
+const {
+  attachGooglePlacePhotoUrls,
+  refreshPlacesPhotoReferences,
+  mergeFreshPhotosIntoCache,
+} = require("../utils/googlePlacePhotos");
 const cron = require("node-cron");
 
 const CACHE_NAME = "restaurants";
@@ -440,18 +444,22 @@ exports.getNearbyRestaurants = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+        return { ...place, distanceKm, distanceMinutes };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const maxRadiusKm = RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1] * DRIVE_SPEED_KM_PER_MIN;
     const withinMaxRadius = withDistance.filter((place) => place.distanceKm <= maxRadiusKm);
     if (withinMaxRadius.length > 0) {
+      const refreshedResults = await refreshPlacesPhotoReferences(withinMaxRadius);
+      const updatedCache = mergeFreshPhotosIntoCache(cachedData, refreshedResults);
+      writeCache(updatedCache, CACHE_NAME);
+
       return success(res, "Nearby African restaurants (from cache)", {
         source: "cache",
         radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
-        count: withinMaxRadius.length,
-        restaurants: withinMaxRadius,
+        count: refreshedResults.length,
+        restaurants: refreshedResults.map(attachGooglePlacePhotoUrls),
       });
     }
 
@@ -468,7 +476,6 @@ exports.getNearbyRestaurants = async (req, res) => {
     const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values())
       .filter((p) => isRestaurant(p) && !isNigeriaResult(p));
     const toCache = [...cachedData, ...deduped];
-    writeCache(toCache, CACHE_NAME);
 
     const enriched = deduped.map((place) => {
       const placeCoords = {
@@ -477,14 +484,18 @@ exports.getNearbyRestaurants = async (req, res) => {
       };
       const distanceKm = haversineDistanceKm(coords, placeCoords);
       const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-      return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+      return { ...place, distanceKm, distanceMinutes };
     }).sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const refreshedResults = await refreshPlacesPhotoReferences(enriched);
+    const updatedCache = mergeFreshPhotosIntoCache(toCache, refreshedResults);
+    writeCache(updatedCache, CACHE_NAME);
 
     return success(res, "Nearby African restaurants (fresh + cached)", {
       source: "google",
       radiusMinutes: 60,
-      count: enriched.length,
-      restaurants: enriched,
+      count: refreshedResults.length,
+      restaurants: refreshedResults.map(attachGooglePlacePhotoUrls),
     });
   } catch (err) {
     console.error("❌ Error fetching nearby restaurants:", err.response?.data || err.message);
@@ -589,11 +600,6 @@ exports.searchRestaurants = async (req, res) => {
       }
     }
 
-    if (!usedCache && allResults.length > 0) {
-      const deduped = Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values());
-      writeCache(deduped, CACHE_NAME);
-    }
-
     const withDistance = allResults
       .filter((place) => place?.geometry?.location)
       .map((place) => {
@@ -603,15 +609,24 @@ exports.searchRestaurants = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+        return { ...place, distanceKm, distanceMinutes };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const limitedResults = withDistance.slice(0, 20); // limit for demo
+    const refreshedResults = await refreshPlacesPhotoReferences(limitedResults);
+
+    if (refreshedResults.length > 0) {
+      const nextCacheData = !usedCache && allResults.length > 0
+        ? Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values())
+        : cachedData;
+      const updatedCache = mergeFreshPhotosIntoCache(nextCacheData, refreshedResults);
+      writeCache(updatedCache, CACHE_NAME);
+    }
 
     // 🔑 Fetch reviews for top 10
     const withReviews = await Promise.all(
-      limitedResults.slice(0, 10).map(async (place) => {
+      refreshedResults.slice(0, 10).map(async (place) => {
         const reviews = await fetchReviews(place.place_id);
         return attachGooglePlacePhotoUrls({
           ...place,

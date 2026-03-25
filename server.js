@@ -7,6 +7,7 @@ const cookieParser = require("cookie-parser");
 const dotenv = require("dotenv");
 const connectDB = require("./Deespora/src/utils/db.js");
 const { preloadCaches } = require("./Deespora/src/utils/RestCache.js");
+const { startDiscoveryImageRefreshCron } = require("./Deespora/src/utils/discoveryImageRefresh.js");
 
 //require("./src/utils/db.js");
 const routes = require("./Deespora/src/routes/routes.js");
@@ -15,6 +16,7 @@ const routes = require("./Deespora/src/routes/routes.js");
 const app = express();
 connectDB();
 preloadCaches();
+startDiscoveryImageRefreshCron();
 
 app.use(cors({ origin: process.env.CLIENT_URL || "*", credentials: true }));
 app.use(compression());

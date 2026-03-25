@@ -2,7 +2,11 @@ const axios = require("axios");
 const { success, error } = require("../utils/response");
 const cron = require("node-cron");
 const { readCache, writeCache } = require("../utils/RestCache");
-const { attachGooglePlacePhotoUrls } = require("../utils/googlePlacePhotos");
+const {
+  attachGooglePlacePhotoUrls,
+  refreshPlacesPhotoReferences,
+  mergeFreshPhotosIntoCache,
+} = require("../utils/googlePlacePhotos");
 
 const CACHE_NAME = "catering";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
@@ -343,18 +347,22 @@ exports.getCateringCompanies = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+        return { ...place, distanceKm, distanceMinutes };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const maxRadiusKm = RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1] * DRIVE_SPEED_KM_PER_MIN;
     const withinMaxRadius = withDistance.filter((place) => place.distanceKm <= maxRadiusKm);
     if (withinMaxRadius.length > 0) {
+      const refreshedResults = await refreshPlacesPhotoReferences(withinMaxRadius);
+      const updatedCache = mergeFreshPhotosIntoCache(cachedData, refreshedResults);
+      writeCache(updatedCache, CACHE_NAME);
+
       return success(res, "Nearby African catering companies (from cache)", {
         source: "cache",
         radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
-        count: withinMaxRadius.length,
-        catering: withinMaxRadius,
+        count: refreshedResults.length,
+        catering: refreshedResults.map(attachGooglePlacePhotoUrls),
       });
     }
 
@@ -371,7 +379,7 @@ exports.getCateringCompanies = async (req, res) => {
 
     const deduped = Array.from(new Map(fetched.map((p) => [p.place_id, p])).values())
       .filter((p) => isCateringPlace(p) && !isNigeriaResult(p));
-    writeCache([...cachedData, ...deduped], CACHE_NAME);
+    const toCache = [...cachedData, ...deduped];
 
     const enriched = deduped
       .filter((place) => place?.geometry?.location)
@@ -382,15 +390,19 @@ exports.getCateringCompanies = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+        return { ...place, distanceKm, distanceMinutes };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const refreshedResults = await refreshPlacesPhotoReferences(enriched);
+    const updatedCache = mergeFreshPhotosIntoCache(toCache, refreshedResults);
+    writeCache(updatedCache, CACHE_NAME);
 
     return success(res, "Nearby African catering companies (fresh + cached)", {
       source: "google",
       radiusMinutes: RADIUS_TIERS_MINUTES[RADIUS_TIERS_MINUTES.length - 1],
-      count: enriched.length,
-      catering: enriched,
+      count: refreshedResults.length,
+      catering: refreshedResults.map(attachGooglePlacePhotoUrls),
     });
   } catch (err) {
     console.error("❌ Error fetching companies:", err.message);
@@ -506,11 +518,6 @@ exports.searchCatering = async (req, res) => {
       }
     }
 
-    if (!usedCache && allResults.length > 0) {
-      const deduped = Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values());
-      writeCache(deduped, CACHE_NAME);
-    }
-
     const withDistance = allResults
       .filter((place) => place?.geometry?.location)
       .map((place) => {
@@ -520,14 +527,23 @@ exports.searchCatering = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
+        return { ...place, distanceKm, distanceMinutes };
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const limitedResults = withDistance.slice(0, 20);
+    const refreshedResults = await refreshPlacesPhotoReferences(limitedResults);
+
+    if (refreshedResults.length > 0) {
+      const nextCacheData = !usedCache && allResults.length > 0
+        ? Array.from(new Map([...cachedData, ...allResults].map((p) => [p.place_id, p])).values())
+        : cachedData;
+      const updatedCache = mergeFreshPhotosIntoCache(nextCacheData, refreshedResults);
+      writeCache(updatedCache, CACHE_NAME);
+    }
 
     const withReviews = await Promise.all(
-      limitedResults.slice(0, 10).map(async (place) => {
+      refreshedResults.slice(0, 10).map(async (place) => {
         const reviews = await fetchReviews(place.place_id);
         return attachGooglePlacePhotoUrls({
           ...place,

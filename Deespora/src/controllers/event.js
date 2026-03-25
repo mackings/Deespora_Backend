@@ -107,6 +107,8 @@ async function fetchAndCacheEvents() {
   return apiEvents;
 }
 
+exports.fetchAndCacheEvents = fetchAndCacheEvents;
+
 // ✅ API handler
 exports.getEvents = async (req, res) => {
   try {
@@ -178,4 +180,3 @@ exports.searchEvent = async (req, res) => {
     return error(res, "Failed to search events", 500, err.message);
   }
 };
-
