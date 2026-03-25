@@ -2,6 +2,7 @@ const axios = require("axios");
 const { success, error } = require("../utils/response");
 const cron = require("node-cron");
 const { readCache, writeCache } = require("../utils/RestCache");
+const { attachGooglePlacePhotoUrls } = require("../utils/googlePlacePhotos");
 
 const CACHE_NAME = "worship";
 const DRIVE_SPEED_KM_PER_MIN = 0.6; // ~36 km/h average city driving
@@ -319,7 +320,7 @@ exports.getAfricanChurches = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return { ...place, distanceKm, distanceMinutes };
+        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
@@ -358,7 +359,7 @@ exports.getAfricanChurches = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return { ...place, distanceKm, distanceMinutes };
+        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
@@ -489,7 +490,7 @@ exports.searchWorship = async (req, res) => {
         };
         const distanceKm = haversineDistanceKm(coords, placeCoords);
         const distanceMinutes = Math.round(distanceKm / DRIVE_SPEED_KM_PER_MIN);
-        return { ...place, distanceKm, distanceMinutes };
+        return attachGooglePlacePhotoUrls({ ...place, distanceKm, distanceMinutes });
       })
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
@@ -498,10 +499,10 @@ exports.searchWorship = async (req, res) => {
     const withReviews = await Promise.all(
       limitedResults.slice(0, 10).map(async (place) => {
         const reviews = await fetchReviews(place.place_id);
-        return {
+        return attachGooglePlacePhotoUrls({
           ...place,
           reviews: reviews.slice(0, 3),
-        };
+        });
       })
     );
 
