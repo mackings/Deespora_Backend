@@ -5,16 +5,32 @@ const { error,success} = require("../utils/response");
 
 
 
-// Initialize ImageKit
-const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
-});
+function getImageKit() {
+  const publicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+  const privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+  const urlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+
+  if (!publicKey || !privateKey || !urlEndpoint) {
+    return null;
+  }
+
+  return new ImageKit({
+    publicKey,
+    privateKey,
+    urlEndpoint,
+  });
+}
 
 // Helper function to upload image to ImageKit
 const uploadToImageKit = async (fileBuffer, fileName, folder = "listings") => {
   try {
+    const imagekit = getImageKit();
+    if (!imagekit) {
+      throw new Error(
+        "ImageKit is not configured. Set IMAGEKIT_PUBLIC_KEY, IMAGEKIT_PRIVATE_KEY, and IMAGEKIT_URL_ENDPOINT."
+      );
+    }
+
     const result = await imagekit.upload({
       file: fileBuffer,
       fileName: fileName,
